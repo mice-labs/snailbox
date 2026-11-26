@@ -1,9 +1,13 @@
 .PHONY: check
 
-# The repo holds only docs so far, so check covers the tracked Markdown: ADR
-# naming and status, relative links, and whitespace errors against HEAD.
-# Relative links are found only in the inline `[text](path)` form.
+# check runs the Rust formatter check, the linter (warnings fail it) and the
+# tests, then the tracked Markdown checks: ADR naming and status, relative
+# links, and whitespace errors against HEAD. Relative links are found only in
+# the inline `[text](path)` form.
 check:
+	cargo fmt --check
+	cargo clippy --all-targets -- -D warnings
+	cargo test
 	@fail=0; \
 	for f in docs/adr/*.md; do \
 		[ -e "$$f" ] || continue; \

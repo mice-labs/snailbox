@@ -1,0 +1,13 @@
+[package]
+name = "snailbox"
+version = "0.1.0"
+edition = "2021"
+description = "A local Inbox of Messages between Senders and Receivers"
+publish = false
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+
+[lints.clippy]
+needless_pass_by_value = "warn"
+clone_on_ref_ptr = "warn"
