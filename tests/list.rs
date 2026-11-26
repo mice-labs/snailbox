@@ -142,6 +142,7 @@ fn list_json_messages_carry_no_body_or_parent_while_show_json_does() {
 
     let listed = snailbox(home.path(), &["list", "--json"]);
 
+    assert!(listed.status.success(), "list failed: {}", stderr(&listed));
     let value: Value = serde_json::from_str(&stdout(&listed)).expect("stdout is JSON");
     let messages = value["messages"].as_array().expect("a messages array");
     assert_eq!(messages.len(), 2);
@@ -151,6 +152,7 @@ fn list_json_messages_carry_no_body_or_parent_while_show_json_does() {
         assert_eq!(keys, ["created_at", "from", "id", "subject", "to"]);
     }
     let shown = snailbox(home.path(), &["show", &reply, "--json"]);
+    assert!(shown.status.success(), "show failed: {}", stderr(&shown));
     let shown: Value = serde_json::from_str(&stdout(&shown)).expect("stdout is JSON");
     assert_eq!(shown["body"], "the body");
     assert_eq!(shown["parent"], root.as_str());

@@ -28,23 +28,38 @@ pub enum Cursor {
 }
 
 impl LeftOut {
+    /// `older` for `Before`, `newer` for `After`.
+    fn direction(&self) -> &'static str {
+        match self.cursor {
+            Cursor::Before(_) => "older",
+            Cursor::After(_) => "newer",
+        }
+    }
+
     /// `--before` reads older Messages, `--after` newer ones.
-    fn direction_flag_and_id(&self) -> (&'static str, &'static str, &MessageId) {
+    fn flag(&self) -> &'static str {
+        match self.cursor {
+            Cursor::Before(_) => BEFORE_FLAG,
+            Cursor::After(_) => AFTER_FLAG,
+        }
+    }
+
+    /// The id of the kept Message the cursor names.
+    fn id(&self) -> &MessageId {
         match &self.cursor {
-            Cursor::Before(before) => ("older", BEFORE_FLAG, before),
-            Cursor::After(after) => ("newer", AFTER_FLAG, after),
+            Cursor::Before(id) | Cursor::After(id) => id,
         }
     }
 
     /// The flag and id that read the Messages a limit left out.
     fn next_flag(&self) -> String {
-        let (_, flag, id) = self.direction_flag_and_id();
-        format!("{flag} {id}")
+        format!("{} {}", self.flag(), self.id())
     }
 
     /// The line text output ends with when a limit left Messages out.
     fn notice(&self) -> String {
-        let (direction, flag, _) = self.direction_flag_and_id();
+        let direction = self.direction();
+        let flag = self.flag();
         let count = self.count;
         let noun = if count == 1 { "Message" } else { "Messages" };
         format!(

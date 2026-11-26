@@ -109,6 +109,12 @@ fn an_inbox_without_indexes_opens_lists_and_gains_them() {
             "next": null,
         })
     );
+    let shown = snailbox(home.path(), &["show", REPLY_ID, "--json"]);
+    assert!(shown.status.success(), "show failed: {}", stderr(&shown));
+    let shown: serde_json::Value =
+        serde_json::from_str(&stdout(&shown)).expect("show --json prints JSON");
+    assert_eq!(shown["body"], "ok");
+    assert_eq!(shown["parent"], ROOT_ID);
     assert_eq!(index_names(home.path()), EXPECTED_INDEXES);
 }
 

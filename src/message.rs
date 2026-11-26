@@ -143,17 +143,12 @@ impl Message {
         self.to_json_value().to_string()
     }
 
-    /// The object `to_json` prints, for embedding in a larger document.
+    /// The object `to_json` prints.
     fn to_json_value(&self) -> serde_json::Value {
-        serde_json::json!({
-            "id": self.id.to_string(),
-            "from": self.sender,
-            "to": self.receivers,
-            "subject": self.subject,
-            "created_at": self.created_at.to_rfc3339_opts(SecondsFormat::Secs, true),
-            "body": self.body,
-            "parent": self.parent.as_ref().map(ToString::to_string),
-        })
+        let mut value = self.to_list_json_value();
+        value["body"] = serde_json::json!(self.body);
+        value["parent"] = serde_json::json!(self.parent.as_ref().map(ToString::to_string));
+        value
     }
 
     /// The object `list --json` holds per Message: the fields of `to_list_line`, with the full
