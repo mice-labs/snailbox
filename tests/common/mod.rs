@@ -109,6 +109,19 @@ pub fn listed_subjects(home: &TempFolder, args: &[&str]) -> Vec<String> {
         .collect()
 }
 
+/// What `list` printed on standard error with `args`, failing the test unless it exited
+/// non-zero with nothing on standard output.
+pub fn failed_list(home: &TempFolder, args: &[&str]) -> String {
+    let output = snailbox(home.path(), &[&["list"], args].concat());
+    assert!(
+        !output.status.success(),
+        "list succeeded: {}",
+        stdout(&output)
+    );
+    assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
+    stderr(&output)
+}
+
 /// Runs `create` through `command`, whose environment the caller has set, and returns the id
 /// it printed, failing the test if the command failed.
 pub fn create_with(mut command: Command, args: &[&str]) -> String {

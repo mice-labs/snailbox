@@ -1,11 +1,11 @@
 //! `list --upthread`, `--downthread` and `--thread`: each is relative to the named Message,
 //! always includes it, leaves out Replies on other branches, keeps arrival order and combines
-//! with every other filter. Each test runs the built binary against its own temporary
+//! with `--to`, `--from`, `--after`, `--before`, `--limit` and each other. Each test runs the built binary against its own temporary
 //! `SNAILBOX_HOME`.
 
 mod common;
 
-use common::{create, listed_subjects, snailbox, stderr, stdout, store, TempFolder};
+use common::{create, failed_list, listed_subjects, snailbox, stdout, store, TempFolder};
 
 /// A home holding a branching tree, stored in the order m1 to m7:
 ///
@@ -41,17 +41,6 @@ fn tree(name: &str) -> (TempFolder, Vec<String>) {
         ids.push(id);
     }
     (home, ids)
-}
-
-fn failed_list(home: &TempFolder, args: &[&str]) -> String {
-    let output = snailbox(home.path(), &[&["list"], args].concat());
-    assert!(
-        !output.status.success(),
-        "list succeeded: {}",
-        stdout(&output)
-    );
-    assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
-    stderr(&output)
 }
 
 #[test]
@@ -198,43 +187,46 @@ fn a_thread_filter_naming_several_messages_lists_them() {
     }
 }
 
+/// Every thread filter named on m2 (`ids[1]`) combined with each of `--to`, `--from`,
+/// `--after`, `--before` and `--limit`: the thread filter's Messages, narrowed by the other
+/// filter. m2 and m4 are from bob and m5 from alice; every Reply is to carol.
 #[test]
-fn a_thread_filter_combines_with_to_and_from() {
-    let (home, ids) = tree("to-from");
+fn each_thread_filter_combines_with_to_from_after_before_and_limit() {
+    let (home, ids) = tree("combine");
+    // (extra flags, expected for --upthread, --downthread and --thread of m2)
+    let cases: [(Vec<&str>, [&[&str]; 3]); 6] = [
+        (
+            vec!["--from", "bob"],
+            [&["m2"], &["m2", "m4"], &["m2", "m4"]],
+        ),
+        (
+            vec!["--to", "carol"],
+            [&["m2"], &["m2", "m4", "m5"], &["m2", "m4", "m5"]],
+        ),
+        (
+            vec!["--after", &ids[1]],
+            [&[], &["m4", "m5"], &["m4", "m5"]],
+        ),
+        (
+            vec!["--before", &ids[3]],
+            [&["m1", "m2"], &["m2"], &["m1", "m2"]],
+        ),
+        (
+            vec!["--after", &ids[0], "--before", &ids[4]],
+            [&["m2"], &["m2", "m4"], &["m2", "m4"]],
+        ),
+        (vec!["--limit", "1"], [&["m2"], &["m5"], &["m5"]]),
+    ];
 
-    // Replies m2, m4 and m6 are from bob; m1 is from alice to bob.
-    assert_eq!(
-        listed_subjects(&home, &["--thread", &ids[0], "--from", "bob"]),
-        ["m2", "m4", "m6"]
-    );
-    assert_eq!(
-        listed_subjects(&home, &["--downthread", &ids[1], "--to", "carol"]),
-        ["m2", "m4", "m5"]
-    );
-    assert_eq!(
-        listed_subjects(&home, &["--thread", &ids[0], "--to", "bob"]),
-        ["m1"]
-    );
-}
-
-#[test]
-fn downthread_with_after_returns_only_the_new_replies() {
-    let (home, ids) = tree("down-after");
-
-    assert_eq!(
-        listed_subjects(&home, &["--downthread", &ids[0], "--after", &ids[3]]),
-        ["m5", "m6"]
-    );
-}
-
-#[test]
-fn a_thread_filter_combines_with_before() {
-    let (home, ids) = tree("before");
-
-    assert_eq!(
-        listed_subjects(&home, &["--thread", &ids[0], "--before", &ids[3]]),
-        ["m1", "m2", "m3"]
-    );
+    for (extra, expected) in cases {
+        for (flag, expected) in ["--upthread", "--downthread", "--thread"]
+            .into_iter()
+            .zip(expected)
+        {
+            let args = [&[flag, ids[1].as_str()], extra.as_slice()].concat();
+            assert_eq!(listed_subjects(&home, &args), expected, "{flag} {extra:?}");
+        }
+    }
 }
 
 #[test]
@@ -261,5 +253,13 @@ fn thread_filters_given_together_all_apply() {
     assert_eq!(
         listed_subjects(&home, &["--upthread", &ids[4], "--downthread", &ids[1]]),
         ["m2", "m4", "m5"]
+    );
+    assert_eq!(
+        listed_subjects(&home, &["--thread", &ids[1], "--downthread", &ids[3]]),
+        ["m4", "m5"]
+    );
+    assert_eq!(
+        listed_subjects(&home, &["--thread", &ids[1], "--upthread", &ids[3]]),
+        ["m1", "m2", "m4"]
     );
 }

@@ -112,12 +112,16 @@ fn name(text: &str) -> Result<String, String> {
 
 const AFTER_FLAG: &str = "--after";
 const BEFORE_FLAG: &str = "--before";
+const UPTHREAD_FLAG: &str = "--upthread";
+const DOWNTHREAD_FLAG: &str = "--downthread";
+const THREAD_FLAG: &str = "--thread";
 
 /// Adds to a no-match error from a flag that takes a Message id the hint that the flag takes
 /// one. A date or time of any format reaches this error unless its characters are the start of
 /// a stored id (an all-digit value such as 20261126 is a valid hex prefix, and ids are random
-/// UUIDs, ADR 0001); the flag is the first one, in the order below, whose prefix failed when
-/// several were given the same value.
+/// UUIDs, ADR 0001). `Inbox::list` resolves the flags in the order after, before, upthread,
+/// downthread, thread, so when several were given the same value the flag named is the first
+/// of them in that order.
 fn hint_id_flag_error(error: anyhow::Error, filter: &ListFilter) -> anyhow::Error {
     let Some(no_message) = error.downcast_ref::<NoMessage>() else {
         return error;
@@ -125,9 +129,9 @@ fn hint_id_flag_error(error: anyhow::Error, filter: &ListFilter) -> anyhow::Erro
     let flag = [
         (AFTER_FLAG, &filter.after),
         (BEFORE_FLAG, &filter.before),
-        ("--upthread", &filter.upthread),
-        ("--downthread", &filter.downthread),
-        ("--thread", &filter.thread),
+        (UPTHREAD_FLAG, &filter.upthread),
+        (DOWNTHREAD_FLAG, &filter.downthread),
+        (THREAD_FLAG, &filter.thread),
     ]
     .into_iter()
     .find(|(_, prefix)| prefix.as_ref().map(IdPrefix::as_str) == Some(no_message.prefix.as_str()))

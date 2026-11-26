@@ -11,7 +11,7 @@ snailbox create --from bob --to alice --subject 're: lunch?' --reply-to "${id:0:
 snailbox list                # one line per Message (at most 50), oldest stored first
 snailbox list --to bob --from alice --json
 snailbox list --after "${id:0:8}" --limit 20   # catch up from the last Message handled
-snailbox list --thread "${id:0:8}"             # the exchange a Message belongs to, no side branches
+snailbox list --thread "${id:0:8}"             # the Thread a Message belongs to, no side branches
 ```
 
 `create` needs `--from` (there is no default Sender and no fallback to the operating-system
@@ -63,7 +63,8 @@ only when that Message's id happens to start with it.
 Message, which they always include: `--upthread` adds the chain of Messages it replies to, back
 to one that is not a Reply; `--downthread` adds every Reply beneath it at any depth; `--thread`
 adds both. Replies on other branches are left out of all three. They take a Message id or a
-unique prefix, with the same no-match and several-match errors as `--after`, keep arrival
+unique prefix, with the same errors as `--after` (several-match, and no-match with its hint
+that the flag takes a Message id, not a date or time, and its all-digit exception), keep arrival
 order, and combine with every other filter; when given together they all apply. So
 `--downthread <id> --after <last-seen-id>` returns only the new Replies beneath a Message.
 

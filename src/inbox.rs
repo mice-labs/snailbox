@@ -161,17 +161,15 @@ impl Inbox {
             .map(|prefix| self.arrival_of(prefix))
             .transpose()?;
         let mut thread_filters = Vec::new();
-        for (prefix, direction) in [
-            (&filter.upthread, Direction::Up),
-            (&filter.downthread, Direction::Down),
-        ] {
+        let thread_flags: [(&Option<IdPrefix>, &[Direction]); 3] = [
+            (&filter.upthread, &[Direction::Up]),
+            (&filter.downthread, &[Direction::Down]),
+            (&filter.thread, &[Direction::Up, Direction::Down]),
+        ];
+        for (prefix, directions) in thread_flags {
             if let Some(prefix) = prefix {
-                thread_filters.push(self.reach(&self.resolve(prefix)?, &[direction])?);
+                thread_filters.push(self.reach(&self.resolve(prefix)?, directions)?);
             }
-        }
-        if let Some(prefix) = &filter.thread {
-            thread_filters
-                .push(self.reach(&self.resolve(prefix)?, &[Direction::Up, Direction::Down])?);
         }
         let mut statement = self.connection.prepare(&format!(
             "{SELECT_MESSAGE}
@@ -288,7 +286,6 @@ impl Inbox {
 }
 
 /// Which way along Replies `Inbox::reach` walks.
-#[derive(Clone, Copy)]
 enum Direction {
     Up,
     Down,
