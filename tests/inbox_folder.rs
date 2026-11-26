@@ -1,5 +1,5 @@
-//! Which folder holds the Inbox, and that `create` and `show` each create it on first use for
-//! its owner only. A Message created under one setting is shown again with `SNAILBOX_HOME`
+//! Which folder holds the Inbox, and that `create`, `show` and `list` each create it on first
+//! use for its owner only. A Message created under one setting is shown again with `SNAILBOX_HOME`
 //! pointing at the folder that setting should have chosen, so the tests never open the
 //! database file.
 
@@ -121,6 +121,23 @@ fn show_makes_the_folder_for_its_owner_only() {
     );
     let mode = std::fs::metadata(&folder)
         .expect("show made the Inbox folder")
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o777, 0o700, "mode was {:o}", mode & 0o777);
+}
+
+#[test]
+fn list_makes_the_folder_for_its_owner_only() {
+    let scratch = TempFolder::new("folder-list-mode");
+    let folder = scratch.path().join("new");
+
+    let output = snailbox(&folder, &["list"]);
+
+    assert!(output.status.success(), "list failed: {}", stderr(&output));
+    assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
+    assert!(output.stderr.is_empty(), "stderr was {}", stderr(&output));
+    let mode = std::fs::metadata(&folder)
+        .expect("list made the Inbox folder")
         .permissions()
         .mode();
     assert_eq!(mode & 0o777, 0o700, "mode was {:o}", mode & 0o777);

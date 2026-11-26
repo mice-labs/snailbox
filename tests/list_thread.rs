@@ -5,7 +5,10 @@
 
 mod common;
 
-use common::{create, failed_list, listed_subjects, snailbox, stdout, store, TempFolder};
+use common::{
+    create, failed_list, listed_subjects, snailbox, stdout, store,
+    two_ids_sharing_a_first_character, TempFolder,
+};
 
 /// A home holding a branching tree, stored in the order m1 to m7:
 ///
@@ -165,16 +168,7 @@ fn a_thread_filter_naming_no_message_is_an_error() {
 #[test]
 fn a_thread_filter_naming_several_messages_lists_them() {
     let home = TempFolder::new("ambiguous");
-    // Ids are random, so this takes a handful of Messages, not a fixed number.
-    let mut seen: Vec<String> = Vec::new();
-    let (first, one, other) = loop {
-        let id = store(&home, "alice", &["bob"], "m");
-        let first = id.chars().next().expect("an id is not empty");
-        if let Some(earlier) = seen.iter().find(|other| other.starts_with(first)) {
-            break (first.to_string(), earlier.clone(), id);
-        }
-        seen.push(id);
-    };
+    let (first, one, other) = two_ids_sharing_a_first_character(&home);
 
     for flag in ["--upthread", "--downthread", "--thread"] {
         let error = failed_list(&home, &[flag, &first]);

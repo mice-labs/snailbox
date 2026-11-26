@@ -5,7 +5,10 @@
 
 mod common;
 
-use common::{failed_list, listed_subjects, snailbox, stdout, store, TempFolder};
+use common::{
+    failed_list, listed_subjects, snailbox, stdout, store, two_ids_sharing_a_first_character,
+    TempFolder,
+};
 use serde_json::Value;
 
 /// A home holding Messages "m1" to "mN" from alice to bob, and their ids in order.
@@ -73,15 +76,11 @@ fn a_cursor_matching_no_message_is_an_error() {
 
 #[test]
 fn an_ambiguous_cursor_prefix_is_an_error_listing_the_matches() {
-    let (home, ids) = home_with(17, "ambiguous");
-    let shared = ids
-        .iter()
-        .map(|id| &id[..1])
-        .find(|first| ids.iter().filter(|id| id.starts_with(first)).count() > 1)
-        .expect("17 ids share a first character");
+    let home = TempFolder::new("ambiguous");
+    let (shared, _, _) = two_ids_sharing_a_first_character(&home);
 
     for flag in ["--after", "--before"] {
-        let error = failed_list(&home, &[flag, shared]);
+        let error = failed_list(&home, &[flag, &shared]);
         assert!(
             error.contains(&format!("the id prefix {shared} matches several Messages")),
             "stderr was {error}"

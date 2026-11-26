@@ -11,7 +11,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use body::BodySource;
-use inbox::{Inbox, LeftOut, ListFilter, NoMessage};
+use inbox::{IdField, Inbox, LeftOut, ListFilter, NoMessageFor};
 use message::{IdPrefix, Message, MessageId, NewMessage};
 
 #[derive(Parser)]
@@ -119,24 +119,18 @@ const THREAD_FLAG: &str = "--thread";
 /// Adds to a no-match error from a flag that takes a Message id the hint that the flag takes
 /// one. A date or time of any format reaches this error unless its characters are the start of
 /// a stored id (an all-digit value such as 20261126 is a valid hex prefix, and ids are random
-/// UUIDs, ADR 0001). `Inbox::list` resolves the flags in the order after, before, upthread,
-/// downthread, thread, so when several were given the same value the flag named is the first
-/// of them in that order.
-fn hint_id_flag_error(error: anyhow::Error, filter: &ListFilter) -> anyhow::Error {
-    let Some(no_message) = error.downcast_ref::<NoMessage>() else {
+/// UUIDs, ADR 0001).
+fn hint_id_flag_error(error: anyhow::Error) -> anyhow::Error {
+    let Some(NoMessageFor { field, no_message }) = error.downcast_ref::<NoMessageFor>() else {
         return error;
     };
-    let flag = [
-        (AFTER_FLAG, &filter.after),
-        (BEFORE_FLAG, &filter.before),
-        (UPTHREAD_FLAG, &filter.upthread),
-        (DOWNTHREAD_FLAG, &filter.downthread),
-        (THREAD_FLAG, &filter.thread),
-    ]
-    .into_iter()
-    .find(|(_, prefix)| prefix.as_ref().map(IdPrefix::as_str) == Some(no_message.prefix.as_str()))
-    .map(|(flag, _)| flag)
-    .expect("the failed prefix was given to one of the flags that take a Message id");
+    let flag = match field {
+        IdField::After => AFTER_FLAG,
+        IdField::Before => BEFORE_FLAG,
+        IdField::Upthread => UPTHREAD_FLAG,
+        IdField::Downthread => DOWNTHREAD_FLAG,
+        IdField::Thread => THREAD_FLAG,
+    };
     anyhow::anyhow!(
         "{no_message}; {flag} takes a Message id (or a unique prefix of one), not a date or time"
     )
@@ -241,9 +235,7 @@ fn run(command: Command) -> Result<()> {
                 thread,
                 limit: NonZeroUsize::new(limit),
             };
-            let listing = inbox
-                .list(&filter)
-                .map_err(|error| hint_id_flag_error(error, &filter))?;
+            let listing = inbox.list(&filter).map_err(hint_id_flag_error)?;
             if json {
                 let messages: Vec<_> = listing
                     .messages

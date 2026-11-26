@@ -4,7 +4,7 @@
 
 mod common;
 
-use common::{create, snailbox, stderr, stdout, TempFolder};
+use common::{create, snailbox, stderr, stdout, two_ids_sharing_a_first_character, TempFolder};
 use serde_json::Value;
 use std::process::Output;
 
@@ -20,20 +20,6 @@ fn create_reply(home: &TempFolder, parent: &str) -> Output {
         home.path(),
         &[&["create"], &reply_args(parent)[..]].concat(),
     )
-}
-
-/// Creates Messages until two ids share their first character, and returns that character
-/// with both ids. Ids are random, so this takes a handful of tries, not a fixed number.
-fn two_ids_sharing_a_first_character(home: &TempFolder) -> (char, String, String) {
-    let mut seen: Vec<String> = Vec::new();
-    loop {
-        let id = create(home.path(), &BASE);
-        let first = id.chars().next().expect("an id is not empty");
-        if let Some(earlier) = seen.iter().find(|other| other.starts_with(first)) {
-            return (first, earlier.clone(), id);
-        }
-        seen.push(id);
-    }
 }
 
 #[test]
@@ -164,8 +150,8 @@ fn a_prefix_matching_several_messages_fails_and_lists_them() {
     let home = TempFolder::new("ambiguous-prefix");
     let (first, one, other) = two_ids_sharing_a_first_character(&home);
 
-    let shown = snailbox(home.path(), &["show", &first.to_string()]);
-    let replied = create_reply(&home, &first.to_string());
+    let shown = snailbox(home.path(), &["show", &first]);
+    let replied = create_reply(&home, &first);
 
     for output in [&shown, &replied] {
         assert!(!output.status.success(), "the command succeeded");

@@ -44,12 +44,11 @@ them, which creation times never decide (ADR 0001). There is no sort flag. Each 
 text line is tab-separated: the first eight characters of the id, the creation time in local
 time, the Sender, the Receivers joined by commas and the subject; a tab or line break inside
 one of them prints as a space. A limit that left Messages out adds one last line with no tabs
-(below). `--json` prints an array of the
-objects `show --json` prints, with full ids (an object holding that array when a limit left
-Messages out, below). `--to <name>` keeps Messages with that name among
-their Receivers, `--from <name>` keeps Messages from that Sender, and both together keep only
-Messages satisfying both. An empty Inbox, or filters matching nothing, print nothing (an empty
-array with `--json`) and exit 0.
+(below). `--json` prints an array of the objects `show --json` prints, with full ids (an
+object holding that array when a limit left Messages out, below). `--to <name>` keeps
+Messages with that name among their Receivers, `--from <name>` keeps Messages from that
+Sender, and both together keep only Messages satisfying both. An empty Inbox, or filters
+matching nothing, print nothing (an empty array with `--json`) and exit 0.
 
 `--after <id>` and `--before <id>` are cursors: they keep the Messages this Inbox stored after
 or before the named one, and together bound a range. They take a Message id or a unique
@@ -64,27 +63,27 @@ Message, which they always include: `--upthread` adds the chain of Messages it r
 to one that is not a Reply; `--downthread` adds every Reply beneath it at any depth; `--thread`
 adds both. Replies on other branches are left out of all three. They take a Message id or a
 unique prefix, with the same errors as `--after` (several-match, and no-match with its hint
-that the flag takes a Message id, not a date or time, and its all-digit exception), keep arrival
-order, and combine with every other filter; when given together they all apply. So
+that the flag takes a Message id, not a date or time, and its all-digit exception), keep
+arrival order, and combine with every other filter; when given together they all apply. So
 `--downthread <id> --after <last-seen-id>` returns only the new Replies beneath a Message.
 
-`--limit <n>` defaults to 50 and `--limit 0` removes it.
-When more Messages match than the limit, `--after` (alone or with `--before`) returns the first
-n after that Message, `--before` alone returns the last n before it, and no cursor returns
-the most recent n; either way they print oldest first. A limit that left Messages out ends the text output with a line
-giving how many and the flag (`--after <id>` or `--before <id>`, with a full id) that reads
-them; the flag replaces the same cursor in the command (any `--before` for the older ones,
-any `--after` for the newer ones), whose other flags stay. With `--json`
-that case prints an object instead of the array: `messages` (the array), `left_out` (the count)
-and `next` (the flag); when nothing was left out the output is the plain array, with no notice.
+`--limit <n>` defaults to 50 and `--limit 0` removes it. When more Messages match than the
+limit, `--after` (alone or with `--before`) returns the first n after that Message,
+`--before` alone returns the last n before it, and no cursor returns the most recent n;
+either way they print oldest first. A limit that left Messages out ends the text output with
+a line giving how many and the flag (`--after <id>` or `--before <id>`, with a full id) that
+reads them; the flag replaces the same cursor in the command (any `--before` for the older
+ones, any `--after` for the newer ones), whose other flags stay. With `--json` that case
+prints an object instead of the array: `messages` (the array), `left_out` (the count) and
+`next` (the flag); when nothing was left out the output is the plain array, with no notice.
 So a consumer of `--json` handles both shapes: an array, or an object whose `messages` is the
-array. The cursors and limit combine with `--to` and `--from`, which narrow
-the matches before the limit applies, as do the thread filters.
+array. The cursors and limit combine with `--to` and `--from`, which narrow the matches
+before the limit applies, as do the thread filters.
 
 The Inbox is a SQLite database in the folder `SNAILBOX_HOME` names when it is set, else
 `$XDG_DATA_HOME/snailbox/` when that is set, else `~/.local/share/snailbox/`. An empty
-variable counts as unset. `create` or `show` creates a missing folder, readable and
-writable by its owner only; a folder that already exists keeps its permissions.
+variable counts as unset. `create`, `show` and `list` each create a missing folder, readable
+and writable by its owner only; a folder that already exists keeps its permissions.
 
 Several processes can run `create` against one Inbox at once: SQLite lets one write at a
 time, and the others wait for it, up to 30 seconds each, before failing with "database is

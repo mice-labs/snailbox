@@ -14,8 +14,8 @@ person sending or receiving there.
 _Avoid_: mailbox, queue, database
 
 **Message**:
-A unit of content in the inbox, with a subject and a body, addressed from one sender to one
-or more receivers.
+A unit of content in the Inbox, with a subject and an optional body, addressed from one
+Sender to one or more Receivers.
 _Avoid_: event, item, mail, notification
 
 **Sender**:

@@ -83,6 +83,21 @@ pub fn store(home: &TempFolder, from: &str, to: &[&str], subject: &str) -> Strin
     create(home.path(), &args)
 }
 
+/// Stores Messages until two ids share their first character, and returns that character with
+/// both ids, the earlier stored first. Ids are random, so this takes a handful of Messages, not
+/// a fixed number.
+pub fn two_ids_sharing_a_first_character(home: &TempFolder) -> (String, String, String) {
+    let mut seen: Vec<String> = Vec::new();
+    loop {
+        let id = store(home, "alice", &["bob"], "m");
+        let first = id.chars().next().expect("an id is not empty");
+        if let Some(earlier) = seen.iter().find(|other| other.starts_with(first)) {
+            return (first.to_string(), earlier.clone(), id);
+        }
+        seen.push(id);
+    }
+}
+
 /// The subjects `list` printed with `args`, one per line, in the order printed. Text lines are
 /// tab-separated and the subject is the last field; the one line without a tab that is allowed,
 /// the notice that the limit left Messages out, is skipped, and any other tab-less line fails

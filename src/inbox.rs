@@ -44,7 +44,7 @@ pub struct Inbox {
     connection: Connection,
 }
 
-/// No Message has an id starting with `prefix`; a caller downcasts to it to add a hint.
+/// No Message has an id starting with `prefix`.
 #[derive(Debug)]
 pub struct NoMessage {
     pub prefix: IdPrefix,
@@ -57,6 +57,32 @@ impl std::fmt::Display for NoMessage {
 }
 
 impl std::error::Error for NoMessage {}
+
+/// The `ListFilter` fields that name a Message by id or prefix.
+#[derive(Debug, Clone, Copy)]
+pub enum IdField {
+    After,
+    Before,
+    Upthread,
+    Downthread,
+    Thread,
+}
+
+/// A `ListFilter` id field named a prefix no Message matches; a caller downcasts to it to add
+/// a hint naming the field.
+#[derive(Debug)]
+pub struct NoMessageFor {
+    pub field: IdField,
+    pub no_message: NoMessage,
+}
+
+impl std::fmt::Display for NoMessageFor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.no_message.fmt(f)
+    }
+}
+
+impl std::error::Error for NoMessageFor {}
 
 impl Inbox {
     /// Opens the Inbox in `folder`, creating the folder and database on first use.
@@ -81,7 +107,7 @@ impl Inbox {
             .as_ref()
             .map(|prefix| self.resolve(prefix))
             .transpose()?
-            .map(|parent| parent.to_string());
+            .map(|parent| parent.id);
         let id = MessageId::random();
         let created_at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
         // Immediate makes the lock point explicit: the write lock is taken at BEGIN, where a
@@ -117,42 +143,45 @@ impl Inbox {
         Ok(id)
     }
 
-    /// The full id of the one Message whose id starts with `prefix` (ADR 0001); fails when no
-    /// Message or several do, listing the several.
-    fn resolve(&self, prefix: &IdPrefix) -> Result<MessageId> {
-        let mut statement = self.connection.prepare(
-            "SELECT id FROM messages WHERE substr(id, 1, length(?1)) = ?1 ORDER BY arrival",
-        )?;
+    /// The stored row of the one Message whose id starts with `prefix` (ADR 0001); fails when
+    /// no Message or several do, listing the several.
+    fn resolve(&self, prefix: &IdPrefix) -> Result<StoredMessage> {
+        let mut statement = self.connection.prepare(&format!(
+            "{SELECT_MESSAGE} WHERE substr(id, 1, length(?1)) = ?1 ORDER BY arrival"
+        ))?;
         let mut matches = statement
-            .query_map([prefix.as_str()], |row| row.get::<_, String>(0))?
+            .query_map([prefix.as_str()], StoredMessage::from_row)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         match matches.len() {
             0 => Err(NoMessage {
                 prefix: prefix.clone(),
             }
             .into()),
-            1 => {
-                let stored = matches.remove(0);
-                stored
-                    .parse()
-                    .with_context(|| format!("the Inbox holds a malformed id {stored}"))
-            }
+            1 => Ok(matches.remove(0)),
             _ => bail!(
                 "the id prefix {prefix} matches several Messages:\n{}",
-                matches.join("\n")
+                matches
+                    .iter()
+                    .map(|row| row.id.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n")
             ),
         }
+    }
+
+    /// `resolve` for a `ListFilter` id field, whose no-match error names `field`.
+    fn resolve_field(&self, prefix: &IdPrefix, field: IdField) -> Result<StoredMessage> {
+        self.resolve(prefix)
+            .map_err(|error| match error.downcast::<NoMessage>() {
+                Ok(no_message) => NoMessageFor { field, no_message }.into(),
+                Err(error) => error,
+            })
     }
 
     /// The Message whose id is, or is the only one to start with, `prefix`; fails when no
     /// Message does or several do.
     pub fn show(&self, prefix: &IdPrefix) -> Result<Message> {
-        let id = self.resolve(prefix)?;
-        let row = self.connection.query_row(
-            &format!("{SELECT_MESSAGE} WHERE id = ?1"),
-            [id.to_string()],
-            StoredMessage::from_row,
-        )?;
+        let row = self.resolve(prefix)?;
         self.with_receivers(row)
     }
 
@@ -161,25 +190,28 @@ impl Inbox {
     /// the oldest are kept if `after` is given and the newest otherwise, and the listing says
     /// what was left out and where to continue.
     pub fn list(&self, filter: &ListFilter) -> Result<Listing> {
-        let after = filter
-            .after
-            .as_ref()
-            .map(|prefix| self.arrival_of(prefix))
-            .transpose()?;
-        let before = filter
-            .before
-            .as_ref()
-            .map(|prefix| self.arrival_of(prefix))
-            .transpose()?;
+        let arrival_of = |prefix: &Option<IdPrefix>, field| {
+            prefix
+                .as_ref()
+                .map(|prefix| self.resolve_field(prefix, field).map(|row| row.arrival))
+                .transpose()
+        };
+        let after = arrival_of(&filter.after, IdField::After)?;
+        let before = arrival_of(&filter.before, IdField::Before)?;
         let mut thread_filters = Vec::new();
-        let thread_flags: [(&Option<IdPrefix>, &[Direction]); 3] = [
-            (&filter.upthread, &[Direction::Up]),
-            (&filter.downthread, &[Direction::Down]),
-            (&filter.thread, &[Direction::Up, Direction::Down]),
+        let thread_flags: [(&Option<IdPrefix>, IdField, &[Direction]); 3] = [
+            (&filter.upthread, IdField::Upthread, &[Direction::Up]),
+            (&filter.downthread, IdField::Downthread, &[Direction::Down]),
+            (
+                &filter.thread,
+                IdField::Thread,
+                &[Direction::Up, Direction::Down],
+            ),
         ];
-        for (prefix, directions) in thread_flags {
+        for (prefix, field, directions) in thread_flags {
             if let Some(prefix) = prefix {
-                thread_filters.push(self.reach(&self.resolve(prefix)?, directions)?);
+                let start = self.resolve_field(prefix, field)?;
+                thread_filters.push(self.reach(&start.id, directions)?);
             }
         }
         let mut statement = self.connection.prepare(&format!(
@@ -229,7 +261,7 @@ impl Inbox {
 
     /// The ids of `start` and every Message reached from it by walking `directions`: Upthread
     /// follows each Message to the one it replies to, Downthread to the Replies to it.
-    fn reach(&self, start: &MessageId, directions: &[Direction]) -> Result<HashSet<String>> {
+    fn reach(&self, start: &str, directions: &[Direction]) -> Result<HashSet<String>> {
         let mut ids = HashSet::new();
         for direction in directions {
             let step = match direction {
@@ -247,21 +279,11 @@ impl Inbox {
                 "WITH RECURSIVE reached(id) AS (SELECT ?1 UNION {step}) SELECT id FROM reached"
             ))?;
             let found = statement
-                .query_map([start.to_string()], |row| row.get::<_, String>(0))?
+                .query_map([start], |row| row.get::<_, String>(0))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             ids.extend(found);
         }
         Ok(ids)
-    }
-
-    /// The arrival number of the one Message whose id starts with `prefix`.
-    fn arrival_of(&self, prefix: &IdPrefix) -> Result<i64> {
-        let id = self.resolve(prefix)?;
-        Ok(self.connection.query_row(
-            "SELECT arrival FROM messages WHERE id = ?1",
-            [id.to_string()],
-            |row| row.get(0),
-        )?)
     }
 
     /// The Message `row` stores, with its Receivers read from the `receivers` table.
