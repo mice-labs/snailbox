@@ -1,13 +1,12 @@
 //! The Inbox: the SQLite store of Messages, and the operations snailbox offers on it.
 
-use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, SecondsFormat, Utc};
-use rusqlite::{params, Connection, TransactionBehavior};
+use rusqlite::{params, Connection, Row, Rows, TransactionBehavior};
 
 use crate::location;
 use crate::message::{IdPrefix, Message, MessageId, NewMessage};
@@ -21,7 +20,10 @@ const WRITER_WAIT: Duration = Duration::from_secs(30);
 
 // `arrival` is the Inbox's own order (ADR 0001), assigned by the insert itself.
 // AUTOINCREMENT keeps it from ever reusing a number, so a Message stored later always sorts
-// later.
+// later. `created_at` is RFC 3339 text in UTC, since SQLite has no date type. The indexes are
+// IF NOT EXISTS so an Inbox created before they existed gains them on its next open, with no
+// migration step; without the one on parent each Downthread step of a thread filter scans
+// the table.
 const SCHEMA: &str = "
     CREATE TABLE IF NOT EXISTS messages (
         arrival    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,6 +40,9 @@ const SCHEMA: &str = "
         name     TEXT NOT NULL,
         PRIMARY KEY (arrival, position)
     );
+    CREATE INDEX IF NOT EXISTS messages_by_parent ON messages (parent);
+    CREATE INDEX IF NOT EXISTS messages_by_sender ON messages (sender);
+    CREATE INDEX IF NOT EXISTS receivers_by_name ON receivers (name);
 ";
 
 pub struct Inbox {
@@ -110,7 +115,7 @@ impl Inbox {
             .as_ref()
             .map(|prefix| self.resolve_input(prefix, IdInput::ReplyTo))
             .transpose()?
-            .map(|parent| parent.id);
+            .map(|parent| parent.id.to_string());
         let id = MessageId::random();
         let created_at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
         // Immediate makes the lock point explicit: the write lock is taken at BEGIN, where a
@@ -146,13 +151,11 @@ impl Inbox {
         Ok(id)
     }
 
-    /// The stored row of the one Message whose id starts with `prefix` (ADR 0001); fails when
-    /// no Message or several do, listing the several.
-    fn resolve(&self, prefix: &IdPrefix) -> Result<StoredMessage> {
+    /// The one Message whose id starts with `prefix` (ADR 0001); fails when no Message or
+    /// several do, listing the several.
+    fn resolve(&self, prefix: &IdPrefix) -> Result<Message> {
         let mut statement = self.connection.prepare(RESOLVE_SQL)?;
-        let mut matches = statement
-            .query_map([prefix.as_str()], StoredMessage::from_row)?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut matches = read_messages(statement.query([prefix.as_str()])?, |_| Ok(()))?;
         match matches.len() {
             0 => Err(NoMessage {
                 prefix: prefix.clone(),
@@ -163,7 +166,7 @@ impl Inbox {
                 "the id prefix {prefix} matches several Messages:\n{}",
                 matches
                     .iter()
-                    .map(|row| row.id.as_str())
+                    .map(|message| message.id.to_string())
                     .collect::<Vec<_>>()
                     .join("\n")
             ),
@@ -171,7 +174,7 @@ impl Inbox {
     }
 
     /// `resolve` for an id input, whose no-match error names `input`.
-    fn resolve_input(&self, prefix: &IdPrefix, input: IdInput) -> Result<StoredMessage> {
+    fn resolve_input(&self, prefix: &IdPrefix, input: IdInput) -> Result<Message> {
         self.resolve(prefix)
             .map_err(|error| match error.downcast::<NoMessage>() {
                 Ok(no_message) => NoMessageFor { input, no_message }.into(),
@@ -179,20 +182,22 @@ impl Inbox {
             })
     }
 
-    /// The arrival of the Message `prefix` names, or none when there is no `prefix`; fails as
+    /// The full id of the Message `prefix` names, or none when there is no `prefix`; fails as
     /// `resolve_input` does when no Message matches.
-    fn arrival_of(&self, prefix: &Option<IdPrefix>, input: IdInput) -> Result<Option<i64>> {
+    fn full_id_of(&self, prefix: &Option<IdPrefix>, input: IdInput) -> Result<Option<String>> {
         prefix
             .as_ref()
-            .map(|prefix| self.resolve_input(prefix, input).map(|row| row.arrival))
+            .map(|prefix| {
+                self.resolve_input(prefix, input)
+                    .map(|message| message.id.to_string())
+            })
             .transpose()
     }
 
     /// The Message whose id is, or is the only one to start with, `prefix`; fails when no
     /// Message does or several do.
     pub fn show(&self, prefix: &IdPrefix) -> Result<Message> {
-        let row = self.resolve_input(prefix, IdInput::Show)?;
-        self.with_receivers(row)
+        self.resolve_input(prefix, IdInput::Show)
     }
 
     /// The Messages matching `filter`, in the order this Inbox stored them, oldest first
@@ -200,119 +205,104 @@ impl Inbox {
     /// the oldest are kept if `after` is given and the newest otherwise, and the listing says
     /// what was left out and where to continue.
     pub fn list(&self, filter: &ListFilter) -> Result<Listing> {
-        let after = self.arrival_of(&filter.after, IdInput::After)?;
-        let before = self.arrival_of(&filter.before, IdInput::Before)?;
-        let mut thread_filters = Vec::new();
-        let thread_flags: [(&Option<IdPrefix>, IdInput, &[Direction]); 3] = [
-            (&filter.upthread, IdInput::Upthread, &[Direction::Upthread]),
-            (
-                &filter.downthread,
-                IdInput::Downthread,
-                &[Direction::Downthread],
-            ),
-            (
-                &filter.thread,
-                IdInput::Thread,
-                &[Direction::Upthread, Direction::Downthread],
-            ),
-        ];
-        for (prefix, input, directions) in thread_flags {
-            if let Some(prefix) = prefix {
-                let start = self.resolve_input(prefix, input)?;
-                thread_filters.push(self.reach(&start.id, directions)?);
-            }
-        }
-        let mut statement = self.connection.prepare(LIST_SQL)?;
-        let mut rows = statement
-            .query_map(
-                params![filter.from, filter.to, after, before],
-                StoredMessage::from_row,
-            )?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        rows.retain(|row| thread_filters.iter().all(|ids| ids.contains(&row.id)));
-        let excess = filter
-            .limit
-            .map_or(0, |limit| rows.len().saturating_sub(limit.get()));
+        let after = self.full_id_of(&filter.after, IdInput::After)?;
+        let before = self.full_id_of(&filter.before, IdInput::Before)?;
+        let upthread = self.full_id_of(&filter.upthread, IdInput::Upthread)?;
+        let downthread = self.full_id_of(&filter.downthread, IdInput::Downthread)?;
+        let thread = self.full_id_of(&filter.thread, IdInput::Thread)?;
         let keeps_oldest = after.is_some();
-        if keeps_oldest {
-            rows.truncate(rows.len() - excess);
+        let sql = if keeps_oldest {
+            LIST_OLDEST_SQL
         } else {
-            rows.drain(..excess);
-        }
-        let messages = rows
-            .into_iter()
-            .map(|row| self.with_receivers(row))
-            .collect::<Result<Vec<_>>>()?;
-        // A non-zero limit that left Messages out kept at least one.
-        let left_out = match (excess, keeps_oldest) {
-            (0, _) => None,
-            (count, true) => Some(LeftOut::Newer {
-                count,
-                after: messages.last().expect("a kept Message").id.clone(),
-            }),
-            (count, false) => Some(LeftOut::Older {
-                count,
-                before: messages.first().expect("a kept Message").id.clone(),
-            }),
+            LIST_NEWEST_SQL
         };
+        let mut statement = self.connection.prepare(sql)?;
+        let rows = statement.query(params![
+            filter.from,
+            filter.to,
+            after,
+            before,
+            upthread,
+            downthread,
+            thread,
+            filter.limit.map(NonZeroUsize::get),
+        ])?;
+        let mut matched = 0;
+        let messages = read_messages(rows, |row| {
+            matched = row.get("matched")?;
+            Ok(())
+        })?;
+        let count = matched - messages.len();
+        // A non-zero limit that left Messages out kept at least one.
+        let left_out = (count > 0).then(|| LeftOut {
+            count,
+            cursor: if keeps_oldest {
+                Cursor::After(messages.last().expect("a kept Message").id.clone())
+            } else {
+                Cursor::Before(messages.first().expect("a kept Message").id.clone())
+            },
+        });
         Ok(Listing { messages, left_out })
-    }
-
-    /// The ids of `start` and every Message reached from it by walking `directions`: Upthread
-    /// follows each Message to the one it replies to, Downthread to the Replies to it.
-    fn reach(&self, start: &str, directions: &[Direction]) -> Result<HashSet<String>> {
-        let mut ids = HashSet::new();
-        for direction in directions {
-            let sql = match direction {
-                Direction::Upthread => REACH_UPTHREAD_SQL,
-                Direction::Downthread => REACH_DOWNTHREAD_SQL,
-            };
-            let mut statement = self.connection.prepare(sql)?;
-            let found = statement
-                .query_map([start], |row| row.get::<_, String>(0))?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            ids.extend(found);
-        }
-        Ok(ids)
-    }
-
-    /// The Message `row` stores, with its Receivers read from the `receivers` table.
-    fn with_receivers(&self, row: StoredMessage) -> Result<Message> {
-        let mut statement = self
-            .connection
-            .prepare_cached("SELECT name FROM receivers WHERE arrival = ?1 ORDER BY position")?;
-        let receivers = statement
-            .query_map([row.arrival], |row| row.get::<_, String>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(Message {
-            id: row
-                .id
-                .parse()
-                .with_context(|| format!("the Inbox holds a malformed id {}", row.id))?,
-            sender: row.sender,
-            receivers,
-            subject: row.subject,
-            body: row.body,
-            parent: row
-                .parent
-                .map(|parent| {
-                    parent
-                        .parse()
-                        .with_context(|| format!("the Inbox holds a malformed parent {parent}"))
-                })
-                .transpose()?,
-            created_at: DateTime::parse_from_rfc3339(&row.created_at)
-                .with_context(|| format!("the Inbox holds a malformed time {}", row.created_at))?
-                .with_timezone(&Utc),
-        })
     }
 }
 
-/// Which way along Replies `Inbox::reach` walks: `Upthread` to the Message each one replies
-/// to, `Downthread` to the Replies to it.
-enum Direction {
-    Upthread,
-    Downthread,
+/// The Messages `rows` hold, each read by `message_from_row`, with `also` run on each row for
+/// any column beyond the Message's own.
+fn read_messages(
+    mut rows: Rows<'_>,
+    mut also: impl FnMut(&Row<'_>) -> rusqlite::Result<()>,
+) -> Result<Vec<Message>> {
+    let mut messages = Vec::new();
+    while let Some(row) = rows.next()? {
+        also(row)?;
+        messages.push(message_from_row(row)?);
+    }
+    Ok(messages)
+}
+
+/// The Message a row of `select_message!` holds, its Receivers read from the JSON array the
+/// query aggregates.
+fn message_from_row(row: &Row<'_>) -> Result<Message> {
+    let id: String = row.get("id")?;
+    let parent: Option<String> = row.get("parent")?;
+    let receivers: String = row.get("receivers")?;
+    Ok(Message {
+        id: id
+            .parse()
+            .with_context(|| format!("the Inbox holds a malformed id {id}"))?,
+        sender: row.get("sender")?,
+        receivers: serde_json::from_str(&receivers)
+            .with_context(|| format!("the Inbox holds malformed Receivers {receivers}"))?,
+        subject: row.get("subject")?,
+        body: row.get("body")?,
+        parent: parent
+            .map(|parent| {
+                parent
+                    .parse()
+                    .with_context(|| format!("the Inbox holds a malformed parent {parent}"))
+            })
+            .transpose()?,
+        created_at: created_at_from_row(row)?,
+    })
+}
+
+/// The row's creation time; a stored text that is no time fails with an error quoting it.
+fn created_at_from_row(row: &Row<'_>) -> Result<DateTime<Utc>> {
+    row.get::<_, DateTime<Utc>>("created_at")
+        .map_err(|error| match error {
+            rusqlite::Error::FromSqlConversionFailure(_, _, cause) => {
+                anyhow::Error::from_boxed(cause)
+            }
+            error => error.into(),
+        })
+        .with_context(|| {
+            let stored = row
+                .get_ref("created_at")
+                .ok()
+                .and_then(|value| value.as_str().ok())
+                .unwrap_or_default();
+            format!("the Inbox holds a malformed time {stored}")
+        })
 }
 
 /// Which Messages `list` returns; a field left `None` does not narrow the result.
@@ -346,80 +336,85 @@ pub struct Listing {
 }
 
 /// The Messages a limit cut from a listing, and the cursor that continues from the ones kept.
-pub enum LeftOut {
-    /// `count` Messages stored before the first one returned; `before` is that Message's id.
-    Older { count: usize, before: MessageId },
-    /// `count` Messages stored after the last one returned; `after` is that Message's id.
-    Newer { count: usize, after: MessageId },
+pub struct LeftOut {
+    pub count: usize,
+    pub cursor: Cursor,
 }
 
-impl LeftOut {
-    pub fn count(&self) -> usize {
-        match self {
-            Self::Older { count, .. } | Self::Newer { count, .. } => *count,
-        }
-    }
+/// Where the Messages a limit cut lie, named by the kept Message next to them.
+pub enum Cursor {
+    /// They were stored before the first Message returned, whose id this is.
+    Before(MessageId),
+    /// They were stored after the last Message returned, whose id this is.
+    After(MessageId),
 }
 
-/// Prepends the SELECT shared by the `messages` queries; `format!` cannot build a const, so the
-/// join is `concat!`, which takes literals only.
+/// Prepends the SELECT that reads a whole Message, its Receivers aggregated in position order
+/// as a JSON array: a Receiver name can hold a comma, so a separator-joined string would not
+/// split back (snailbox-6vk). `format!` cannot build a const, so the join is `concat!`, which
+/// takes literals only.
 macro_rules! select_message {
     ($tail:literal) => {
         concat!(
-            "SELECT arrival, id, sender, subject, body, created_at, parent FROM messages ",
+            "SELECT messages.id, messages.sender, messages.subject, messages.body, ",
+            "messages.created_at, messages.parent, ",
+            "(SELECT json_group_array(name ORDER BY position) FROM receivers ",
+            "WHERE receivers.arrival = messages.arrival) AS receivers ",
             $tail
         )
     };
 }
 
-const RESOLVE_SQL: &str = select_message!("WHERE substr(id, 1, length(?1)) = ?1 ORDER BY arrival");
+// A prefix match written as a range on id, the form the unique index on id serves; U+10FFFF
+// sorts after every character an id holds, so the range ends past every id with the prefix.
+const RESOLVE_SQL: &str =
+    select_message!("FROM messages WHERE id >= ?1 AND id < ?1 || char(1114111) ORDER BY arrival");
 
-const LIST_SQL: &str = select_message!(
-    "WHERE (?1 IS NULL OR sender = ?1)
-       AND (?2 IS NULL OR EXISTS (
-            SELECT 1 FROM receivers
-            WHERE receivers.arrival = messages.arrival AND receivers.name = ?2))
-       AND (?3 IS NULL OR arrival > ?3)
-       AND (?4 IS NULL OR arrival < ?4)
-     ORDER BY arrival"
-);
-
-const REACH_UPTHREAD_SQL: &str = concat!(
-    "WITH RECURSIVE reached(id) AS (SELECT ?1 UNION ",
-    "SELECT messages.parent FROM messages ",
-    "JOIN reached ON messages.id = reached.id ",
-    "WHERE messages.parent IS NOT NULL) ",
-    "SELECT id FROM reached"
-);
-
-const REACH_DOWNTHREAD_SQL: &str = concat!(
-    "WITH RECURSIVE reached(id) AS (SELECT ?1 UNION ",
-    "SELECT messages.id FROM messages ",
-    "JOIN reached ON messages.parent = reached.id) ",
-    "SELECT id FROM reached"
-);
-
-/// A row of `messages` as stored, before its Receivers are attached.
-struct StoredMessage {
-    arrival: i64,
-    id: String,
-    sender: String,
-    subject: String,
-    body: Option<String>,
-    created_at: String,
-    parent: Option<String>,
+/// The `list` query: ?1 Sender, ?2 Receiver, ?3 and ?4 the full ids of the --after and
+/// --before Messages, ?5, ?6 and ?7 the full ids that start the --upthread, --downthread and
+/// --thread filters, ?8 the limit; NULL leaves each out. `upthread` walks from each start to
+/// the Messages it replies to and `downthread` to the Replies beneath it, each row tagged with
+/// the flag it started from, so several thread flags given together each narrow the result.
+/// `kept` cuts the matches to the limit from the end `$order` names, and `matched` counts
+/// every match, so the caller learns how many the limit left out.
+macro_rules! list_sql {
+    ($order:literal) => {
+        concat!(
+            "WITH RECURSIVE
+             upthread(flag, id) AS (
+                 SELECT 'upthread', ?5 WHERE ?5 IS NOT NULL
+                 UNION SELECT 'thread', ?7 WHERE ?7 IS NOT NULL
+                 UNION SELECT upthread.flag, messages.parent FROM messages
+                       JOIN upthread ON messages.id = upthread.id
+                       WHERE messages.parent IS NOT NULL),
+             downthread(flag, id) AS (
+                 SELECT 'downthread', ?6 WHERE ?6 IS NOT NULL
+                 UNION SELECT 'thread', ?7 WHERE ?7 IS NOT NULL
+                 UNION SELECT downthread.flag, messages.id FROM messages
+                       JOIN downthread ON messages.parent = downthread.id),
+             kept(arrival, matched) AS (
+                 SELECT arrival, count(*) OVER () FROM messages
+                 WHERE (?1 IS NULL OR sender = ?1)
+                   AND (?2 IS NULL OR EXISTS (
+                        SELECT 1 FROM receivers
+                        WHERE receivers.arrival = messages.arrival AND receivers.name = ?2))
+                   AND (?3 IS NULL OR arrival > (SELECT arrival FROM messages WHERE id = ?3))
+                   AND (?4 IS NULL OR arrival < (SELECT arrival FROM messages WHERE id = ?4))
+                   AND (?5 IS NULL OR id IN (SELECT id FROM upthread WHERE flag = 'upthread'))
+                   AND (?6 IS NULL OR id IN (SELECT id FROM downthread WHERE flag = 'downthread'))
+                   AND (?7 IS NULL
+                        OR id IN (SELECT id FROM upthread WHERE flag = 'thread')
+                        OR id IN (SELECT id FROM downthread WHERE flag = 'thread'))
+                 ORDER BY arrival ",
+            $order,
+            " LIMIT coalesce(?8, -1)) ",
+            select_message!(
+                ", kept.matched FROM kept JOIN messages ON messages.arrival = kept.arrival
+                 ORDER BY messages.arrival"
+            )
+        )
+    };
 }
 
-impl StoredMessage {
-    fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
-        Ok(Self {
-            arrival: row.get("arrival")?,
-            id: row.get("id")?,
-            sender: row.get("sender")?,
-            subject: row.get("subject")?,
-            body: row.get("body")?,
-            created_at: row.get("created_at")?,
-            parent: row.get("parent")?,
-        })
-    }
-}
+const LIST_OLDEST_SQL: &str = list_sql!("ASC");
+const LIST_NEWEST_SQL: &str = list_sql!("DESC");

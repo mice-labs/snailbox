@@ -11,7 +11,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use body::BodySource;
-use inbox::{IdInput, Inbox, LeftOut, ListFilter, NoMessageFor};
+use inbox::{Cursor, IdInput, Inbox, LeftOut, ListFilter, NoMessageFor};
 use message::{IdPrefix, Message, MessageId, NewMessage};
 
 #[derive(Parser)]
@@ -149,13 +149,13 @@ struct LeftOutCursor<'a> {
 
 /// `--before` reads older Messages, `--after` newer ones.
 fn left_out_cursor(left_out: &LeftOut) -> LeftOutCursor<'_> {
-    match left_out {
-        LeftOut::Older { before, .. } => LeftOutCursor {
+    match &left_out.cursor {
+        Cursor::Before(before) => LeftOutCursor {
             direction: "older",
             flag: BEFORE_FLAG,
             id: before,
         },
-        LeftOut::Newer { after, .. } => LeftOutCursor {
+        Cursor::After(after) => LeftOutCursor {
             direction: "newer",
             flag: AFTER_FLAG,
             id: after,
@@ -172,7 +172,7 @@ fn next_flag(left_out: &LeftOut) -> String {
 /// The line text output ends with when a limit left Messages out.
 fn left_out_notice(left_out: &LeftOut) -> String {
     let cursor = left_out_cursor(left_out);
-    let count = left_out.count();
+    let count = left_out.count;
     let noun = if count == 1 { "Message" } else { "Messages" };
     format!(
         "{count} {} {noun} left out by the limit; read them with the same flags but {} in place of any {} (or --limit 0 for no limit)",
@@ -254,7 +254,7 @@ fn run(command: Command) -> Result<()> {
                         "{}",
                         serde_json::json!({
                             "messages": messages,
-                            "left_out": left_out.count(),
+                            "left_out": left_out.count,
                             "next": next_flag(left_out),
                         })
                     ),
