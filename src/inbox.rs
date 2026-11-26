@@ -47,7 +47,7 @@ pub struct Inbox {
 /// No Message has an id starting with `prefix`.
 #[derive(Debug)]
 pub struct NoMessage {
-    pub prefix: IdPrefix,
+    prefix: IdPrefix,
 }
 
 impl std::fmt::Display for NoMessage {

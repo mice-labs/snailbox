@@ -70,16 +70,17 @@ enum Command {
         /// (not a date or time)
         #[arg(long, value_name = "ID")]
         before: Option<IdPrefix>,
-        /// Only this Message, named by its Message id or a unique prefix of it, and the chain of
-        /// Messages it replies to, back to one that is not a Reply
+        /// Only this Message, named by its Message id or a unique prefix of it (not a date or
+        /// time), and the chain of Messages it replies to, back to one that is not a Reply
         #[arg(long, value_name = "ID")]
         upthread: Option<IdPrefix>,
-        /// Only this Message, named by its Message id or a unique prefix of it, and every Reply
-        /// beneath it at any depth
+        /// Only this Message, named by its Message id or a unique prefix of it (not a date or
+        /// time), and every Reply beneath it at any depth
         #[arg(long, value_name = "ID")]
         downthread: Option<IdPrefix>,
-        /// Only this Message, named by its Message id or a unique prefix of it, with everything
-        /// upthread and downthread of it; Replies on other branches are left out
+        /// Only this Message, named by its Message id or a unique prefix of it (not a date or
+        /// time), with everything upthread and downthread of it; Replies on other branches are
+        /// left out
         #[arg(long, value_name = "ID")]
         thread: Option<IdPrefix>,
         /// Return at most this many Messages, 0 for no limit: the first n after --after, else
@@ -111,11 +112,9 @@ fn name(text: &str) -> Result<String, String> {
     Ok(text.to_owned())
 }
 
+// Only the cursor flags are constants: the id hint and the left-out notice both name them.
 const AFTER_FLAG: &str = "--after";
 const BEFORE_FLAG: &str = "--before";
-const UPTHREAD_FLAG: &str = "--upthread";
-const DOWNTHREAD_FLAG: &str = "--downthread";
-const THREAD_FLAG: &str = "--thread";
 
 /// Adds to a no-match error from an argument or flag that takes a Message id the hint that it
 /// takes one, and where to find one. A date or time of any format reaches this error unless its
@@ -128,9 +127,9 @@ fn hint_id_error(error: anyhow::Error) -> anyhow::Error {
     let named = match input {
         IdInput::After => AFTER_FLAG,
         IdInput::Before => BEFORE_FLAG,
-        IdInput::Upthread => UPTHREAD_FLAG,
-        IdInput::Downthread => DOWNTHREAD_FLAG,
-        IdInput::Thread => THREAD_FLAG,
+        IdInput::Upthread => "--upthread",
+        IdInput::Downthread => "--downthread",
+        IdInput::Thread => "--thread",
         IdInput::Show => "show's ID argument",
         IdInput::ReplyTo => "--reply-to",
     };

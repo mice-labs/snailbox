@@ -61,19 +61,20 @@ fn a_cursor_accepts_a_unique_prefix() {
 }
 
 #[test]
-fn a_cursor_matching_no_message_is_an_error() {
+fn a_cursor_matching_no_message_is_an_error_saying_what_to_do_next() {
     let (home, _) = home_with(2, "no-match");
 
     for flag in ["--after", "--before"] {
         let error = failed_list(&home, &[flag, "ffffffff-ffff"]);
 
-        assert!(
-            error.contains("no Message has an id starting with ffffffff-ffff"),
-            "stderr for {flag} was {error}"
-        );
-        assert!(
-            error.ends_with("; run `snailbox list` to find one\n"),
-            "stderr for {flag} was {error}"
+        assert_eq!(
+            error,
+            format!(
+                "snailbox: no Message has an id starting with ffffffff-ffff; {flag} takes a \
+                 Message id (or a unique prefix of one), not a date or time; run `snailbox list` \
+                 to find one\n"
+            ),
+            "stderr for {flag}"
         );
     }
 }
