@@ -1,5 +1,6 @@
 //! The Inbox's database file as a release before this one left it: an Inbox written with the
-//! schema that had no indexes still opens and lists, and gains the indexes on that open; and a
+//! schema that had no indexes still opens and lists, and gains the indexes on that open, and
+//! still shows a Message's body and parent; and a
 //! stored creation time that is not an RFC 3339 time, one with no offset included, fails `show`
 //! and `list` with an error saying so.
 //! These tests write the database file directly, since the command line cannot produce an
@@ -109,13 +110,22 @@ fn an_inbox_without_indexes_opens_lists_and_gains_them() {
             "next": null,
         })
     );
-    let shown = snailbox(home.path(), &["show", REPLY_ID, "--json"]);
-    assert!(shown.status.success(), "show failed: {}", stderr(&shown));
+    assert_eq!(index_names(home.path()), EXPECTED_INDEXES);
+}
+
+#[test]
+fn an_inbox_without_indexes_still_shows_body_and_parent() {
+    let home = TempFolder::new("file-old-schema-show");
+    write_inbox_without_indexes(home.path(), "2026-11-26T01:02:03Z");
+
+    let output = snailbox(home.path(), &["show", REPLY_ID, "--json"]);
+
+    assert!(output.status.success(), "show failed: {}", stderr(&output));
+    assert!(output.stderr.is_empty(), "stderr was {}", stderr(&output));
     let shown: serde_json::Value =
-        serde_json::from_str(&stdout(&shown)).expect("show --json prints JSON");
+        serde_json::from_str(&stdout(&output)).expect("show --json prints JSON");
     assert_eq!(shown["body"], "ok");
     assert_eq!(shown["parent"], ROOT_ID);
-    assert_eq!(index_names(home.path()), EXPECTED_INDEXES);
 }
 
 #[test]

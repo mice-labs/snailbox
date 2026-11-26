@@ -3,6 +3,9 @@
 
 use crate::message::{Message, MessageId};
 
+// Only the cursor flags are constants, because two outputs must name them alike: the left-out
+// notice tells the reader to run them, and main's id hint names them in its error. Every other
+// flag is named in one place and stays a literal there.
 pub const AFTER_FLAG: &str = "--after";
 pub const BEFORE_FLAG: &str = "--before";
 
