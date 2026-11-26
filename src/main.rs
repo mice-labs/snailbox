@@ -10,7 +10,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use body::BodySource;
-use inbox::{Inbox, ListFilter};
+use inbox::{Inbox, LeftOut, ListFilter};
 use message::{IdPrefix, Message, NewMessage};
 
 #[derive(Parser)]
@@ -68,8 +68,8 @@ enum Command {
         /// (not a date or time)
         #[arg(long, value_name = "ID", value_parser = cursor_before)]
         before: Option<IdPrefix>,
-        /// Return at most this many Messages, 0 for no limit: the first after --after, else the
-        /// most recent
+        /// Return at most this many Messages, 0 for no limit: the first n after --after, else
+        /// the last n before --before, else the most recent n
         #[arg(long, value_name = "N", default_value_t = 50)]
         limit: usize,
         /// Print the Messages as a JSON array; when the limit left Messages out, an object
@@ -105,20 +105,39 @@ fn cursor_before(text: &str) -> Result<IdPrefix, String> {
     cursor("--before", text)
 }
 
-/// The Message id prefix a cursor flag was given; a value shaped like a date or time (a year
-/// and month, or a colon) can never start a UUID, so it is refused with a hint (ADR 0001).
+/// The Message id prefix a cursor flag was given; a value that cannot start a UUID (hex digits
+/// with a hyphen after the 8th, 13th, 18th and 23rd) is refused with a hint, which catches every
+/// date or time format, not only ISO ones (ADR 0001).
 fn cursor(flag: &str, text: &str) -> Result<IdPrefix, String> {
-    let bytes = text.as_bytes();
-    let starts_like_a_date = bytes.len() >= 7
-        && bytes[..4].iter().all(u8::is_ascii_digit)
-        && bytes[4] == b'-'
-        && bytes[5..7].iter().all(u8::is_ascii_digit);
-    if starts_like_a_date || text.contains(':') {
+    let can_start_a_uuid = text.len() <= 36
+        && text.bytes().enumerate().all(|(position, byte)| {
+            if matches!(position, 8 | 13 | 18 | 23) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_hexdigit()
+            }
+        });
+    if !can_start_a_uuid {
         return Err(format!(
             "{flag} takes a Message id (or a unique prefix of one), not a date or time"
         ));
     }
     text.parse()
+}
+
+/// The line text output ends with when a limit left Messages out.
+fn left_out_notice(left_out: &LeftOut) -> String {
+    let direction = match left_out {
+        LeftOut::Older { .. } => "older",
+        LeftOut::Newer { .. } => "newer",
+    };
+    let count = left_out.count();
+    let noun = if count == 1 { "Message" } else { "Messages" };
+    let cursor = left_out.cursor_flag();
+    format!(
+        "{count} {direction} {noun} left out by the limit; read them with the same flags but {} in place of any {cursor} (or --limit 0 for no limit)",
+        left_out.next_flag()
+    )
 }
 
 fn main() -> ExitCode {
@@ -194,7 +213,7 @@ fn run(command: Command) -> Result<()> {
                     println!("{}", message.to_list_line());
                 }
                 if let Some(left_out) = &listing.left_out {
-                    println!("{}", left_out.to_notice());
+                    println!("{}", left_out_notice(left_out));
                 }
             }
         }

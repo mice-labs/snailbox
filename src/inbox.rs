@@ -160,42 +160,28 @@ impl Inbox {
         let excess = filter
             .limit
             .map_or(0, |limit| rows.len().saturating_sub(limit));
-        let (kept, left_out) = if excess == 0 {
-            (rows, None)
-        } else if after.is_some() {
+        let keeps_oldest = after.is_some();
+        if keeps_oldest {
             rows.truncate(rows.len() - excess);
-            (rows, Some(Side::Newer))
         } else {
-            let kept = rows.split_off(excess);
-            (kept, Some(Side::Older))
-        };
-        let left_out = left_out
-            .map(|side| {
-                let edge = match side {
-                    Side::Newer => kept.last(),
-                    Side::Older => kept.first(),
-                }
-                .expect("a limit that left Messages out kept at least one");
-                let id = edge
-                    .id
-                    .parse()
-                    .with_context(|| format!("the Inbox holds a malformed id {}", edge.id))?;
-                Ok::<_, anyhow::Error>(match side {
-                    Side::Newer => LeftOut::Newer {
-                        count: excess,
-                        after: id,
-                    },
-                    Side::Older => LeftOut::Older {
-                        count: excess,
-                        before: id,
-                    },
-                })
-            })
-            .transpose()?;
-        let messages = kept
+            rows.drain(..excess);
+        }
+        let messages = rows
             .into_iter()
             .map(|row| self.with_receivers(row))
-            .collect::<Result<_>>()?;
+            .collect::<Result<Vec<_>>>()?;
+        // A limit that left Messages out was at least 1, so it kept at least one.
+        let left_out = match (excess, keeps_oldest) {
+            (0, _) => None,
+            (count, true) => Some(LeftOut::Newer {
+                count,
+                after: messages.last().expect("a kept Message").id.clone(),
+            }),
+            (count, false) => Some(LeftOut::Older {
+                count,
+                before: messages.first().expect("a kept Message").id.clone(),
+            }),
+        };
         Ok(Listing { messages, left_out })
     }
 
@@ -285,28 +271,13 @@ impl LeftOut {
         }
     }
 
-    /// The line text output ends with.
-    pub fn to_notice(&self) -> String {
-        let direction = match self {
-            Self::Older { .. } => "older",
-            Self::Newer { .. } => "newer",
-        };
-        let noun = if self.count() == 1 {
-            "Message"
-        } else {
-            "Messages"
-        };
-        format!(
-            "{} {direction} {noun} left out by the limit; read them with {} (or --limit 0 for no limit)",
-            self.count(),
-            self.next_flag()
-        )
+    /// The cursor flag `next_flag` replaces: `--before` or `--after`.
+    pub fn cursor_flag(&self) -> &'static str {
+        match self {
+            Self::Older { .. } => "--before",
+            Self::Newer { .. } => "--after",
+        }
     }
-}
-
-enum Side {
-    Older,
-    Newer,
 }
 
 const SELECT_MESSAGE: &str =

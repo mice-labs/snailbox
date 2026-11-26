@@ -72,12 +72,14 @@ fn a_cursor_accepts_a_unique_prefix() {
 fn a_cursor_matching_no_message_is_an_error() {
     let (home, _) = home_with(2, "no-match");
 
-    let error = failed_list(&home, &["--after", "ffffffff-ffff"]);
+    for flag in ["--after", "--before"] {
+        let error = failed_list(&home, &[flag, "ffffffff-ffff"]);
 
-    assert!(
-        error.contains("no Message has an id starting with ffffffff-ffff"),
-        "stderr was {error}"
-    );
+        assert!(
+            error.contains("no Message has an id starting with ffffffff-ffff"),
+            "stderr for {flag} was {error}"
+        );
+    }
 }
 
 #[test]
@@ -103,7 +105,16 @@ fn a_date_or_time_cursor_is_an_error_saying_the_flag_takes_a_message_id() {
     let (home, _) = home_with(1, "date");
 
     for flag in ["--after", "--before"] {
-        for value in ["2026-11-26", "2026-11-26T10:00:00Z", "10:30"] {
+        for value in [
+            "2026-11-26",
+            "2026-11-26T10:00:00Z",
+            "10:30",
+            "11/26/2026",
+            "2026/11/26",
+            "26.11.2026",
+            "2026-1-5",
+            "1764150000",
+        ] {
             let error = failed_list(&home, &[flag, value]);
             assert!(
                 error.contains(&format!("{flag} takes a Message id")),
@@ -228,6 +239,50 @@ fn the_notice_after_a_first_n_page_points_at_the_last_message_returned() {
 }
 
 #[test]
+fn the_notice_with_before_alone_points_at_the_first_message_returned() {
+    let (home, ids) = home_with(6, "notice-before");
+
+    let output = snailbox(home.path(), &["list", "--before", &ids[5], "--limit", "2"]);
+
+    let text = stdout(&output);
+    let last = text.lines().last().expect("a last line");
+    assert!(
+        last.contains("3 older Messages left out"),
+        "last was {last}"
+    );
+    assert!(
+        last.contains(&format!("--before {}", ids[3])),
+        "last was {last}"
+    );
+}
+
+#[test]
+fn the_notice_says_to_replace_only_the_cursor_and_keep_the_other_flags() {
+    let (home, _) = home_with(5, "notice-keeps-flags");
+
+    let output = snailbox(home.path(), &["list", "--limit", "2"]);
+
+    let text = stdout(&output);
+    let last = text.lines().last().expect("a last line");
+    assert!(
+        last.contains("same flags") && last.contains("in place of any --before"),
+        "last was {last}"
+    );
+}
+
+#[test]
+fn the_notice_counts_a_single_message_in_the_singular() {
+    let (home, _) = home_with(2, "notice-singular");
+
+    let output = snailbox(home.path(), &["list", "--limit", "1"]);
+
+    let text = stdout(&output);
+    let last = text.lines().last().expect("a last line");
+    assert!(last.contains("1 older Message left out"), "last was {last}");
+    assert!(!last.contains("Messages"), "last was {last}");
+}
+
+#[test]
 fn no_notice_when_nothing_was_left_out() {
     let (home, _) = home_with(3, "no-notice");
 
@@ -251,6 +306,21 @@ fn json_carries_what_the_limit_left_out_as_a_field() {
     let messages = value["messages"].as_array().expect("a messages array");
     assert_eq!(messages.len(), 2);
     assert_eq!(messages[0]["subject"], "m4");
+}
+
+#[test]
+fn json_with_after_names_the_after_flag_as_next() {
+    let (home, ids) = home_with(6, "json-after");
+
+    let output = snailbox(
+        home.path(),
+        &["list", "--after", &ids[0], "--limit", "2", "--json"],
+    );
+
+    let value: Value = serde_json::from_str(&stdout(&output)).expect("stdout is JSON");
+    assert_eq!(value["left_out"], 3);
+    assert_eq!(value["next"], format!("--after {}", ids[2]));
+    assert_eq!(value["messages"][0]["subject"], "m2");
 }
 
 #[test]
@@ -278,6 +348,25 @@ fn cursors_and_limit_combine_with_to_and_from() {
             &["--after", &first, "--from", "alice", "--to", "bob", "--limit", "1"]
         ),
         ["a2"]
+    );
+}
+
+#[test]
+fn before_and_limit_combine_with_to_and_from() {
+    let home = TempFolder::new("combine-before");
+    store(&home, "alice", &["bob"], "a1");
+    store(&home, "carol", &["bob"], "c1");
+    store(&home, "alice", &["bob"], "a2");
+    store(&home, "alice", &["dave"], "a-dave");
+    store(&home, "alice", &["bob"], "a3");
+    let last = store(&home, "alice", &["bob"], "a4");
+
+    assert_eq!(
+        listed_subjects(
+            &home,
+            &["--before", &last, "--from", "alice", "--to", "bob", "--limit", "2"]
+        ),
+        ["a2", "a3"]
     );
 }
 

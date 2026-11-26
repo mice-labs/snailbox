@@ -7,6 +7,7 @@ use chrono::{DateTime, Local, SecondsFormat, Utc};
 use uuid::Uuid;
 
 /// A Message's id: a random UUID version 4 that snailbox generates (ADR 0001).
+#[derive(Clone)]
 pub struct MessageId(Uuid);
 
 impl MessageId {

@@ -8,7 +8,7 @@ id=$(snailbox create --from alice --to bob --to carol --subject 'lunch?' --body 
 snailbox show "$id"          # readable text, creation time in local time
 snailbox show "$id" --json   # JSON, creation time in RFC 3339 UTC
 snailbox create --from bob --to alice --subject 're: lunch?' --reply-to "${id:0:8}"
-snailbox list                # one line per Message, oldest stored first
+snailbox list                # one line per Message (at most 50), oldest stored first
 snailbox list --to bob --from alice --json
 snailbox list --after "${id:0:8}" --limit 20   # catch up from the last Message handled
 ```
@@ -43,22 +43,26 @@ them, which creation times never decide (ADR 0001). There is no sort flag. Each 
 tab-separated: the first eight characters of the id, the creation time in local time, the
 Sender, the Receivers joined by commas and the subject; a tab or line break inside one of
 them prints as a space. `--json` prints an array of the
-objects `show --json` prints, with full ids. `--to <name>` keeps Messages with that name among
+objects `show --json` prints, with full ids (an object holding that array when a limit left
+Messages out, below). `--to <name>` keeps Messages with that name among
 their Receivers, `--from <name>` keeps Messages from that Sender, and both together keep only
 Messages satisfying both. An empty Inbox, or filters matching nothing, print nothing (an empty
 array with `--json`) and exit 0.
 
 `--after <id>` and `--before <id>` are cursors: they keep the Messages this Inbox stored after
 or before the named one, and together bound a range. They take a Message id or a unique
-prefix, with the same no-match and several-match errors as `show`, never a date or time (a
-value shaped like one is refused). `--limit <n>` defaults to 50 and `--limit 0` removes it.
+prefix, with the same no-match and several-match errors as `show`, never a date or time: a
+value that cannot start a UUID (hex digits with a hyphen after the 8th, 13th, 18th and 23rd
+character) is refused with an error saying the flag takes a Message id. `--limit <n>` defaults to 50 and `--limit 0` removes it.
 When more Messages match than the limit, `--after` (alone or with `--before`) returns the first
 n after that Message, and `--before` alone or no cursor returns the most recent n; either way
 they print oldest first. A limit that left Messages out ends the text output with a line
 giving how many and the flag (`--after <id>` or `--before <id>`, with a full id) that reads
-them. With `--json` that case prints an object instead of the array: `messages` (the array),
-`left_out` (the count) and `next` (the flag); when nothing was left out the output is the plain
-array, with no notice. The cursors and limit combine with `--to` and `--from`, which narrow
+them; the flag replaces the same cursor in the command, whose other flags stay. With `--json`
+that case prints an object instead of the array: `messages` (the array), `left_out` (the count)
+and `next` (the flag); when nothing was left out the output is the plain array, with no notice.
+So a consumer of `--json` handles both shapes: an array, or an object whose `messages` is the
+array. The cursors and limit combine with `--to` and `--from`, which narrow
 the matches before the limit applies.
 
 The Inbox is a SQLite database in the folder `SNAILBOX_HOME` names when it is set, else
