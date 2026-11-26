@@ -179,6 +179,15 @@ impl Inbox {
             })
     }
 
+    /// The arrival of the Message `prefix` names, or none when there is no `prefix`; fails as
+    /// `resolve_input` does when no Message matches.
+    fn arrival_of(&self, prefix: &Option<IdPrefix>, input: IdInput) -> Result<Option<i64>> {
+        prefix
+            .as_ref()
+            .map(|prefix| self.resolve_input(prefix, input).map(|row| row.arrival))
+            .transpose()
+    }
+
     /// The Message whose id is, or is the only one to start with, `prefix`; fails when no
     /// Message does or several do.
     pub fn show(&self, prefix: &IdPrefix) -> Result<Message> {
@@ -191,14 +200,8 @@ impl Inbox {
     /// the oldest are kept if `after` is given and the newest otherwise, and the listing says
     /// what was left out and where to continue.
     pub fn list(&self, filter: &ListFilter) -> Result<Listing> {
-        let arrival_of = |prefix: &Option<IdPrefix>, input| {
-            prefix
-                .as_ref()
-                .map(|prefix| self.resolve_input(prefix, input).map(|row| row.arrival))
-                .transpose()
-        };
-        let after = arrival_of(&filter.after, IdInput::After)?;
-        let before = arrival_of(&filter.before, IdInput::Before)?;
+        let after = self.arrival_of(&filter.after, IdInput::After)?;
+        let before = self.arrival_of(&filter.before, IdInput::Before)?;
         let mut thread_filters = Vec::new();
         let thread_flags: [(&Option<IdPrefix>, IdInput, &[Direction]); 3] = [
             (&filter.upthread, IdInput::Upthread, &[Direction::Upthread]),
