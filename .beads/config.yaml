@@ -72,4 +72,6 @@
 # - github.token    → use GITHUB_TOKEN env var instead
 
 sync:
-    # remote: "git+ssh://git@git.lynx.mice.team:2222/mice-labs/workspace.git"
+    remote: "git+ssh://git@github.com/mice-labs/snailbox.git"
+
+# remote: "git+ssh://git@git.lynx.mice.team:2222/mice-labs/workspace.git"
