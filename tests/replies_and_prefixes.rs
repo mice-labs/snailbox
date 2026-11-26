@@ -257,7 +257,11 @@ fn the_help_says_show_and_reply_to_take_a_message_id_not_a_date_or_time() {
     ] {
         let output = snailbox(home.path(), &args);
 
-        assert!(output.status.success(), "{args:?} failed: {}", stderr(&output));
+        assert!(
+            output.status.success(),
+            "{args:?} failed: {}",
+            stderr(&output)
+        );
         let entry = help_entry(&stdout(&output), marker);
         assert!(entry.contains("id"), "help for {marker} was {entry}");
         assert!(
