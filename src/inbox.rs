@@ -201,12 +201,16 @@ impl Inbox {
         let before = arrival_of(&filter.before, IdInput::Before)?;
         let mut thread_filters = Vec::new();
         let thread_flags: [(&Option<IdPrefix>, IdInput, &[Direction]); 3] = [
-            (&filter.upthread, IdInput::Upthread, &[Direction::Up]),
-            (&filter.downthread, IdInput::Downthread, &[Direction::Down]),
+            (&filter.upthread, IdInput::Upthread, &[Direction::Upthread]),
+            (
+                &filter.downthread,
+                IdInput::Downthread,
+                &[Direction::Downthread],
+            ),
             (
                 &filter.thread,
                 IdInput::Thread,
-                &[Direction::Up, Direction::Down],
+                &[Direction::Upthread, Direction::Downthread],
             ),
         ];
         for (prefix, input, directions) in thread_flags {
@@ -257,8 +261,8 @@ impl Inbox {
         let mut ids = HashSet::new();
         for direction in directions {
             let sql = match direction {
-                Direction::Up => REACH_UP_SQL,
-                Direction::Down => REACH_DOWN_SQL,
+                Direction::Upthread => REACH_UPTHREAD_SQL,
+                Direction::Downthread => REACH_DOWNTHREAD_SQL,
             };
             let mut statement = self.connection.prepare(sql)?;
             let found = statement
@@ -301,10 +305,11 @@ impl Inbox {
     }
 }
 
-/// Which way along Replies `Inbox::reach` walks.
+/// Which way along Replies `Inbox::reach` walks: `Upthread` to the Message each one replies
+/// to, `Downthread` to the Replies to it.
 enum Direction {
-    Up,
-    Down,
+    Upthread,
+    Downthread,
 }
 
 /// Which Messages `list` returns; a field left `None` does not narrow the result.
@@ -376,7 +381,7 @@ const LIST_SQL: &str = select_message!(
      ORDER BY arrival"
 );
 
-const REACH_UP_SQL: &str = concat!(
+const REACH_UPTHREAD_SQL: &str = concat!(
     "WITH RECURSIVE reached(id) AS (SELECT ?1 UNION ",
     "SELECT messages.parent FROM messages ",
     "JOIN reached ON messages.id = reached.id ",
@@ -384,7 +389,7 @@ const REACH_UP_SQL: &str = concat!(
     "SELECT id FROM reached"
 );
 
-const REACH_DOWN_SQL: &str = concat!(
+const REACH_DOWNTHREAD_SQL: &str = concat!(
     "WITH RECURSIVE reached(id) AS (SELECT ?1 UNION ",
     "SELECT messages.id FROM messages ",
     "JOIN reached ON messages.parent = reached.id) ",
