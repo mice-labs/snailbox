@@ -203,12 +203,16 @@ impl Inbox {
         let before = arrival_of(&filter.before, IdInput::Before)?;
         let mut thread_filters = Vec::new();
         let thread_flags: [(&Option<IdPrefix>, IdInput, &[Direction]); 3] = [
-            (&filter.upthread, IdInput::Upthread, &[Direction::Up]),
-            (&filter.downthread, IdInput::Downthread, &[Direction::Down]),
+            (&filter.upthread, IdInput::Upthread, &[Direction::Upthread]),
+            (
+                &filter.downthread,
+                IdInput::Downthread,
+                &[Direction::Downthread],
+            ),
             (
                 &filter.thread,
                 IdInput::Thread,
-                &[Direction::Up, Direction::Down],
+                &[Direction::Upthread, Direction::Downthread],
             ),
         ];
         for (prefix, input, directions) in thread_flags {
@@ -268,12 +272,12 @@ impl Inbox {
         let mut ids = HashSet::new();
         for direction in directions {
             let step = match direction {
-                Direction::Up => {
+                Direction::Upthread => {
                     "SELECT messages.parent FROM messages
                                   JOIN reached ON messages.id = reached.id
                                   WHERE messages.parent IS NOT NULL"
                 }
-                Direction::Down => {
+                Direction::Downthread => {
                     "SELECT messages.id FROM messages
                                     JOIN reached ON messages.parent = reached.id"
                 }
@@ -321,10 +325,11 @@ impl Inbox {
     }
 }
 
-/// Which way along Replies `Inbox::reach` walks.
+/// Which way along Replies `Inbox::reach` walks: `Upthread` to the Message each one replies
+/// to, `Downthread` to the Replies to it.
 enum Direction {
-    Up,
-    Down,
+    Upthread,
+    Downthread,
 }
 
 /// Which Messages `list` returns; a field left `None` does not narrow the result.
