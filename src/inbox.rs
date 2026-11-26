@@ -58,7 +58,8 @@ impl std::fmt::Display for NoMessage {
 
 impl std::error::Error for NoMessage {}
 
-/// The `ListFilter` fields that name a Message by id or prefix.
+/// The inputs that name a Message by id or prefix: the `ListFilter` id fields, the Message
+/// `show` prints and the parent a new Message replies to.
 #[derive(Debug, Clone, Copy)]
 pub enum IdField {
     After,
@@ -66,10 +67,12 @@ pub enum IdField {
     Upthread,
     Downthread,
     Thread,
+    Show,
+    ReplyTo,
 }
 
-/// A `ListFilter` id field named a prefix no Message matches; a caller downcasts to it to add
-/// a hint naming the field.
+/// An id field named a prefix no Message matches; a caller downcasts to it to add a hint
+/// naming the field.
 #[derive(Debug)]
 pub struct NoMessageFor {
     pub field: IdField,
@@ -105,7 +108,7 @@ impl Inbox {
         let parent = new
             .reply_to
             .as_ref()
-            .map(|prefix| self.resolve(prefix))
+            .map(|prefix| self.resolve_field(prefix, IdField::ReplyTo))
             .transpose()?
             .map(|parent| parent.id);
         let id = MessageId::random();
@@ -169,7 +172,7 @@ impl Inbox {
         }
     }
 
-    /// `resolve` for a `ListFilter` id field, whose no-match error names `field`.
+    /// `resolve` for an id field, whose no-match error names `field`.
     fn resolve_field(&self, prefix: &IdPrefix, field: IdField) -> Result<StoredMessage> {
         self.resolve(prefix)
             .map_err(|error| match error.downcast::<NoMessage>() {
@@ -181,7 +184,7 @@ impl Inbox {
     /// The Message whose id is, or is the only one to start with, `prefix`; fails when no
     /// Message does or several do.
     pub fn show(&self, prefix: &IdPrefix) -> Result<Message> {
-        let row = self.resolve(prefix)?;
+        let row = self.resolve_field(prefix, IdField::Show)?;
         self.with_receivers(row)
     }
 

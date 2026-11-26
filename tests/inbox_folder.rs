@@ -114,10 +114,12 @@ fn show_makes_the_folder_for_its_owner_only() {
     let output = snailbox(&folder, &["show", unknown]);
 
     assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
-    assert_eq!(
-        stderr(&output),
-        format!("snailbox: no Message has an id starting with {unknown}\n"),
-        "show did not reach the new Inbox"
+    assert!(
+        stderr(&output).starts_with(&format!(
+            "snailbox: no Message has an id starting with {unknown};"
+        )),
+        "show did not reach the new Inbox: stderr was {}",
+        stderr(&output)
     );
     let mode = std::fs::metadata(&folder)
         .expect("show made the Inbox folder")

@@ -84,9 +84,12 @@ fn reply_to_an_unknown_id_fails_and_stores_nothing() {
 
     assert!(!output.status.success(), "create succeeded");
     assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
-    assert_eq!(
-        stderr(&output),
-        format!("snailbox: no Message has an id starting with {unknown}\n")
+    assert!(
+        stderr(&output).starts_with(&format!(
+            "snailbox: no Message has an id starting with {unknown};"
+        )),
+        "stderr was {}",
+        stderr(&output)
     );
     // Each hex digit is a one-character prefix: exactly one of them resolves while the Inbox
     // holds only `existing`, and a stored reply would make a second digit resolve.
@@ -169,16 +172,56 @@ fn a_prefix_matching_several_messages_fails_and_lists_them() {
 }
 
 #[test]
-fn a_value_matching_no_message_fails_with_a_clear_error() {
+fn a_value_matching_no_message_fails_saying_what_to_do_next() {
     let home = TempFolder::new("prefix-no-match");
     create(home.path(), &BASE);
 
-    let output = snailbox(home.path(), &["show", "zzzz"]);
+    let shown = snailbox(home.path(), &["show", "zzzz"]);
+    let replied = create_reply(&home, "zzzz");
 
-    assert!(!output.status.success(), "show succeeded");
-    assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
-    assert_eq!(
-        stderr(&output),
-        "snailbox: no Message has an id starting with zzzz\n"
-    );
+    for (output, names) in [(&shown, "show's ID argument"), (&replied, "--reply-to")] {
+        assert!(!output.status.success(), "the command succeeded");
+        assert!(output.stdout.is_empty(), "stdout was {}", stdout(output));
+        assert_eq!(
+            stderr(output),
+            format!(
+                "snailbox: no Message has an id starting with zzzz; {names} takes a Message id \
+                 (or a unique prefix of one), not a date or time; run `snailbox list` to find \
+                 one\n"
+            )
+        );
+    }
+}
+
+#[test]
+fn a_date_or_time_given_to_show_or_reply_to_is_an_error_saying_it_takes_a_message_id() {
+    let home = TempFolder::new("prefix-date");
+    let id = create(home.path(), &BASE);
+
+    // An all-digit value is a valid hex id prefix, so one that this run's random id happens to
+    // start with names that Message, not a date; leave it out.
+    for value in [
+        "2026-11-26",
+        "2026-11-26T10:00:00Z",
+        "10:30",
+        "11/26/2026",
+        "20261126",
+    ]
+    .into_iter()
+    .filter(|value| !id.starts_with(value))
+    {
+        let shown = snailbox(home.path(), &["show", value]);
+        let replied = create_reply(&home, value);
+
+        for (output, names) in [(&shown, "show's ID argument"), (&replied, "--reply-to")] {
+            assert!(!output.status.success(), "{names} {value} succeeded");
+            assert!(
+                stderr(output).contains(&format!(
+                    "{names} takes a Message id (or a unique prefix of one), not a date or time"
+                )),
+                "stderr for {names} {value} was {}",
+                stderr(output)
+            );
+        }
+    }
 }

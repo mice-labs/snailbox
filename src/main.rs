@@ -116,23 +116,26 @@ const UPTHREAD_FLAG: &str = "--upthread";
 const DOWNTHREAD_FLAG: &str = "--downthread";
 const THREAD_FLAG: &str = "--thread";
 
-/// Adds to a no-match error from a flag that takes a Message id the hint that the flag takes
-/// one. A date or time of any format reaches this error unless its characters are the start of
-/// a stored id (an all-digit value such as 20261126 is a valid hex prefix, and ids are random
-/// UUIDs, ADR 0001).
-fn hint_id_flag_error(error: anyhow::Error) -> anyhow::Error {
+/// Adds to a no-match error from an argument or flag that takes a Message id the hint that it
+/// takes one, and where to find one. A date or time of any format reaches this error unless its
+/// characters are the start of a stored id (an all-digit value such as 20261126 is a valid hex
+/// prefix, and ids are random UUIDs, ADR 0001).
+fn hint_id_error(error: anyhow::Error) -> anyhow::Error {
     let Some(NoMessageFor { field, no_message }) = error.downcast_ref::<NoMessageFor>() else {
         return error;
     };
-    let flag = match field {
+    let input = match field {
         IdField::After => AFTER_FLAG,
         IdField::Before => BEFORE_FLAG,
         IdField::Upthread => UPTHREAD_FLAG,
         IdField::Downthread => DOWNTHREAD_FLAG,
         IdField::Thread => THREAD_FLAG,
+        IdField::Show => "show's ID argument",
+        IdField::ReplyTo => "--reply-to",
     };
     anyhow::anyhow!(
-        "{no_message}; {flag} takes a Message id (or a unique prefix of one), not a date or time"
+        "{no_message}; {input} takes a Message id (or a unique prefix of one), not a date or \
+         time; run `snailbox list` to find one"
     )
 }
 
@@ -204,13 +207,15 @@ fn run(command: Command) -> Result<()> {
                 .map(BodySource::read)
                 .transpose()?;
             let mut inbox = Inbox::open(&location::inbox_folder()?)?;
-            let id = inbox.create(&NewMessage {
-                sender: from,
-                receivers: to,
-                subject,
-                body,
-                reply_to,
-            })?;
+            let id = inbox
+                .create(&NewMessage {
+                    sender: from,
+                    receivers: to,
+                    subject,
+                    body,
+                    reply_to,
+                })
+                .map_err(hint_id_error)?;
             println!("{id}");
         }
         Command::List {
@@ -235,7 +240,7 @@ fn run(command: Command) -> Result<()> {
                 thread,
                 limit: NonZeroUsize::new(limit),
             };
-            let listing = inbox.list(&filter).map_err(hint_id_flag_error)?;
+            let listing = inbox.list(&filter).map_err(hint_id_error)?;
             if json {
                 let messages: Vec<_> = listing
                     .messages
@@ -265,7 +270,7 @@ fn run(command: Command) -> Result<()> {
         }
         Command::Show { prefix, json } => {
             let inbox = Inbox::open(&location::inbox_folder()?)?;
-            let message = inbox.show(&prefix)?;
+            let message = inbox.show(&prefix).map_err(hint_id_error)?;
             if json {
                 println!("{}", message.to_json());
             } else {

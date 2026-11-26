@@ -71,6 +71,10 @@ fn a_cursor_matching_no_message_is_an_error() {
             error.contains("no Message has an id starting with ffffffff-ffff"),
             "stderr for {flag} was {error}"
         );
+        assert!(
+            error.ends_with("; run `snailbox list` to find one\n"),
+            "stderr for {flag} was {error}"
+        );
     }
 }
 

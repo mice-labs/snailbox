@@ -36,8 +36,13 @@ the Message as a Reply to the named Message, and `show` prints a Reply's parent 
 `Parent:` line in text, `parent` in JSON, null when the Message is not a Reply). `show` and
 `--reply-to` take a Message's id or any non-empty prefix of it, in either letter case, that
 matches exactly one Message; they exit non-zero with an error on standard error when the
-prefix is empty or no Message matches, or, listing the matches, when several do. There is no
-daemon: `create`, `show` and `list` each open the Inbox directly.
+prefix is empty or no Message matches, or, listing the matches, when several do. They never
+take a date or time: ids are random UUIDs, so a date or time matches no Message, and the
+no-match error adds that the argument or flag takes a Message id, not a date or time, and to
+run `snailbox list` to find one. The exception is an all-digit value such as `20261126`, which
+is also a valid id prefix: it is read as one, and matches a Message only when that Message's
+id happens to start with it. There is no daemon: `create`, `show` and `list` each open the
+Inbox directly.
 
 `list` always returns Messages in arrival order, oldest first: the order this Inbox stored
 them, which creation times never decide (ADR 0001). There is no sort flag. Each Message's
@@ -52,18 +57,15 @@ matching nothing, print nothing (an empty array with `--json`) and exit 0.
 
 `--after <id>` and `--before <id>` are cursors: they keep the Messages this Inbox stored after
 or before the named one, and together bound a range. They take a Message id or a unique
-prefix, with the same no-match and several-match errors as `show`, never a date or time: ids
-are random UUIDs, so a date or time matches no Message and gets a no-match error that adds
-that the flag takes a Message id, not a date or time. The exception is an all-digit value
-such as `20261126`, which is also a valid id prefix: it is read as one, and matches a Message
-only when that Message's id happens to start with it.
+prefix, never a date or time, with the same errors as `show`: several-match, and no-match
+with its hint that the flag takes a Message id, its next step and its all-digit exception.
 
 `--upthread <id>`, `--downthread <id>` and `--thread <id>` follow Replies from the named
 Message, which they always include: `--upthread` adds the chain of Messages it replies to, back
 to one that is not a Reply; `--downthread` adds every Reply beneath it at any depth; `--thread`
 adds both. Replies on other branches are left out of all three. They take a Message id or a
 unique prefix, with the same errors as `--after` (several-match, and no-match with its hint
-that the flag takes a Message id, not a date or time, and its all-digit exception), keep
+that the flag takes a Message id, its next step and its all-digit exception), keep
 arrival order, and combine with every other filter; when given together they all apply. So
 `--downthread <id> --after <last-seen-id>` returns only the new Replies beneath a Message.
 

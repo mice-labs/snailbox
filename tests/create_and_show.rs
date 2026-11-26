@@ -209,8 +209,11 @@ fn show_with_an_unknown_id_fails_on_stderr() {
 
     assert!(!output.status.success(), "show of an unknown id succeeded");
     assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
-    assert_eq!(
-        stderr(&output),
-        format!("snailbox: no Message has an id starting with {unknown}\n")
+    assert!(
+        stderr(&output).starts_with(&format!(
+            "snailbox: no Message has an id starting with {unknown};"
+        )),
+        "stderr was {}",
+        stderr(&output)
     );
 }
