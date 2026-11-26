@@ -170,6 +170,30 @@ fn a_message_without_a_body_shows_null_in_json_and_no_body_in_text() {
 }
 
 #[test]
+fn a_receiver_name_holding_a_comma_comes_back_whole_and_in_order() {
+    let home = TempFolder::new("show-comma-receiver");
+    let id = create(
+        home.path(),
+        &[
+            "--from",
+            "alice",
+            "--to",
+            "bob",
+            "--to",
+            "Smith, Jane",
+            "--subject",
+            "hello",
+        ],
+    );
+
+    let output = snailbox(home.path(), &["show", &id, "--json"]);
+
+    assert!(output.status.success(), "show failed: {}", stderr(&output));
+    let shown: Value = serde_json::from_str(&stdout(&output)).expect("show --json prints JSON");
+    assert_eq!(shown["to"], serde_json::json!(["bob", "Smith, Jane"]));
+}
+
+#[test]
 fn create_that_cannot_write_says_it_cannot_store_the_message() {
     let home = TempFolder::new("create-read-only");
     let args = ["--from", "alice", "--to", "bob", "--subject", "hello"];

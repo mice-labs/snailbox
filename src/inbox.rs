@@ -286,23 +286,15 @@ fn message_from_row(row: &Row<'_>) -> Result<Message> {
     })
 }
 
-/// The row's creation time; a stored text that is no time fails with an error quoting it.
+/// The row's creation time, read as strict RFC 3339; a stored text that is not one fails with
+/// an error quoting it, and a value that is not text fails with rusqlite's column type error.
+/// Parsed here rather than by rusqlite's chrono `FromSql`, which also accepts a time with no
+/// offset.
 fn created_at_from_row(row: &Row<'_>) -> Result<DateTime<Utc>> {
-    row.get::<_, DateTime<Utc>>("created_at")
-        .map_err(|error| match error {
-            rusqlite::Error::FromSqlConversionFailure(_, _, cause) => {
-                anyhow::Error::from_boxed(cause)
-            }
-            error => error.into(),
-        })
-        .with_context(|| {
-            let stored = row
-                .get_ref("created_at")
-                .ok()
-                .and_then(|value| value.as_str().ok())
-                .unwrap_or_default();
-            format!("the Inbox holds a malformed time {stored}")
-        })
+    let stored: String = row.get("created_at")?;
+    Ok(DateTime::parse_from_rfc3339(&stored)
+        .with_context(|| format!("the Inbox holds a malformed time {stored}"))?
+        .with_timezone(&Utc))
 }
 
 /// Which Messages `list` returns; a field left `None` does not narrow the result.
@@ -351,8 +343,10 @@ pub enum Cursor {
 
 /// Prepends the SELECT that reads a whole Message, its Receivers aggregated in position order
 /// as a JSON array: a Receiver name can hold a comma, so a separator-joined string would not
-/// split back (snailbox-6vk). `format!` cannot build a const, so the join is `concat!`, which
-/// takes literals only.
+/// split back (snailbox-6vk). The ORDER BY inside json_group_array needs SQLite 3.44 or later,
+/// which holds because rusqlite's `bundled` feature (Cargo.toml) compiles in its own newer
+/// SQLite; linked against an older system SQLite the query would fail to prepare. `format!`
+/// cannot build a const, so the join is `concat!`, which takes literals only.
 macro_rules! select_message {
     ($tail:literal) => {
         concat!(
@@ -365,8 +359,10 @@ macro_rules! select_message {
     };
 }
 
-// A prefix match written as a range on id, the form the unique index on id serves; U+10FFFF
-// sorts after every character an id holds, so the range ends past every id with the prefix.
+// A prefix match written as a range on id, the form the unique index on id serves. Under the
+// BINARY collation id has (SCHEMA gives it no other), U+10FFFF sorts after every character an
+// id holds, so the range ends past every id with the prefix; a collation that ordered
+// otherwise would need another upper bound.
 const RESOLVE_SQL: &str =
     select_message!("FROM messages WHERE id >= ?1 AND id < ?1 || char(1114111) ORDER BY arrival");
 

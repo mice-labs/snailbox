@@ -1,6 +1,7 @@
 //! The Inbox's database file as a release before this one left it: an Inbox written with the
 //! schema that had no indexes still opens and lists, and gains the indexes on that open; and a
-//! stored creation time that is not a time fails `show` and `list` with an error saying so.
+//! stored creation time that is not an RFC 3339 time, one with no offset included, fails `show`
+//! and `list` with an error saying so.
 //! These tests write the database file directly, since the command line cannot produce an
 //! index-less Inbox or a malformed time; everything they check is the built binary's output,
 //! apart from the index names, which only the file shows.
@@ -52,7 +53,7 @@ fn write_inbox_without_indexes(home: &Path, created_at: &str) {
                  ('{ROOT_ID}', 'alice', 'root', NULL, '{created_at}', NULL),
                  ('{REPLY_ID}', 'bob', 'reply', 'ok', '{created_at}', '{ROOT_ID}');
              INSERT INTO receivers (arrival, position, name) VALUES
-                 (1, 0, 'bob'), (1, 1, 'Smith, Jane'), (2, 0, 'alice');"
+                 (1, 0, 'bob'), (2, 0, 'alice');"
         ))
         .expect("the old rows insert");
 }
@@ -120,23 +121,11 @@ fn a_new_inbox_has_the_indexes() {
     assert_eq!(index_names(home.path()), EXPECTED_INDEXES);
 }
 
-#[test]
-fn a_receiver_name_holding_a_comma_comes_back_whole_and_in_order() {
-    let home = TempFolder::new("file-comma-receiver");
-    write_inbox_without_indexes(home.path(), "2026-11-26T01:02:03Z");
-
-    let output = snailbox(home.path(), &["show", ROOT_ID, "--json"]);
-
-    assert!(output.status.success(), "show failed: {}", stderr(&output));
-    let shown: serde_json::Value =
-        serde_json::from_str(&stdout(&output)).expect("show --json prints JSON");
-    assert_eq!(shown["to"], serde_json::json!(["bob", "Smith, Jane"]));
-}
-
-#[test]
-fn a_malformed_creation_time_fails_show_and_list_saying_so() {
-    let home = TempFolder::new("file-malformed-time");
-    write_inbox_without_indexes(home.path(), "yesterday");
+/// Asserts that `show` and `list` each fail on an Inbox whose creation times are `stored`,
+/// with an error quoting it.
+fn assert_show_and_list_reject_time(name: &str, stored: &str) {
+    let home = TempFolder::new(name);
+    write_inbox_without_indexes(home.path(), stored);
 
     for args in [&["show", ROOT_ID][..], &["list"][..]] {
         let output = snailbox(home.path(), args);
@@ -144,9 +133,21 @@ fn a_malformed_creation_time_fails_show_and_list_saying_so() {
         assert!(!output.status.success(), "{args:?} succeeded");
         assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
         assert!(
-            stderr(&output).starts_with("snailbox: the Inbox holds a malformed time yesterday: "),
+            stderr(&output).starts_with(&format!(
+                "snailbox: the Inbox holds a malformed time {stored}: "
+            )),
             "{args:?} stderr was {}",
             stderr(&output)
         );
     }
+}
+
+#[test]
+fn a_malformed_creation_time_fails_show_and_list_saying_so() {
+    assert_show_and_list_reject_time("file-malformed-time", "yesterday");
+}
+
+#[test]
+fn a_creation_time_without_an_offset_is_malformed() {
+    assert_show_and_list_reject_time("file-naive-time", "2026-11-26 01:02:03");
 }
