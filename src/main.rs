@@ -60,7 +60,21 @@ enum Command {
         /// Only Messages from this Sender
         #[arg(long)]
         from: Option<String>,
-        /// Print the Messages as a JSON array
+        /// Only Messages stored after this one, named by its Message id or a unique prefix of it
+        /// (not a date or time)
+        #[arg(long, value_name = "ID", value_parser = cursor_after)]
+        after: Option<IdPrefix>,
+        /// Only Messages stored before this one, named by its Message id or a unique prefix of it
+        /// (not a date or time)
+        #[arg(long, value_name = "ID", value_parser = cursor_before)]
+        before: Option<IdPrefix>,
+        /// Return at most this many Messages, 0 for no limit: the first after --after, else the
+        /// most recent
+        #[arg(long, value_name = "N", default_value_t = 50)]
+        limit: usize,
+        /// Print the Messages as a JSON array; when the limit left Messages out, an object
+        /// holding the array as `messages`, the count as `left_out` and the flag that reads
+        /// them as `next`
         #[arg(long)]
         json: bool,
     },
@@ -81,6 +95,30 @@ fn name(text: &str) -> Result<String, String> {
         return Err("the name is blank; give a name".to_owned());
     }
     Ok(text.to_owned())
+}
+
+fn cursor_after(text: &str) -> Result<IdPrefix, String> {
+    cursor("--after", text)
+}
+
+fn cursor_before(text: &str) -> Result<IdPrefix, String> {
+    cursor("--before", text)
+}
+
+/// The Message id prefix a cursor flag was given; a value shaped like a date or time (a year
+/// and month, or a colon) can never start a UUID, so it is refused with a hint (ADR 0001).
+fn cursor(flag: &str, text: &str) -> Result<IdPrefix, String> {
+    let bytes = text.as_bytes();
+    let starts_like_a_date = bytes.len() >= 7
+        && bytes[..4].iter().all(u8::is_ascii_digit)
+        && bytes[4] == b'-'
+        && bytes[5..7].iter().all(u8::is_ascii_digit);
+    if starts_like_a_date || text.contains(':') {
+        return Err(format!(
+            "{flag} takes a Message id (or a unique prefix of one), not a date or time"
+        ));
+    }
+    text.parse()
 }
 
 fn main() -> ExitCode {
@@ -117,15 +155,46 @@ fn run(command: Command) -> Result<()> {
             })?;
             println!("{id}");
         }
-        Command::List { to, from, json } => {
+        Command::List {
+            to,
+            from,
+            after,
+            before,
+            limit,
+            json,
+        } => {
             let inbox = Inbox::open(&location::inbox_folder()?)?;
-            let messages = inbox.list(&ListFilter { to, from })?;
+            let listing = inbox.list(&ListFilter {
+                to,
+                from,
+                after,
+                before,
+                limit: (limit > 0).then_some(limit),
+            })?;
             if json {
-                let messages: Vec<_> = messages.iter().map(Message::to_json_value).collect();
-                println!("{}", serde_json::Value::Array(messages));
+                let messages: Vec<_> = listing
+                    .messages
+                    .iter()
+                    .map(Message::to_json_value)
+                    .collect();
+                let messages = serde_json::Value::Array(messages);
+                match &listing.left_out {
+                    None => println!("{messages}"),
+                    Some(left_out) => println!(
+                        "{}",
+                        serde_json::json!({
+                            "messages": messages,
+                            "left_out": left_out.count(),
+                            "next": left_out.next_flag(),
+                        })
+                    ),
+                }
             } else {
-                for message in &messages {
+                for message in &listing.messages {
                     println!("{}", message.to_list_line());
+                }
+                if let Some(left_out) = &listing.left_out {
+                    println!("{}", left_out.to_notice());
                 }
             }
         }

@@ -10,6 +10,7 @@ snailbox show "$id" --json   # JSON, creation time in RFC 3339 UTC
 snailbox create --from bob --to alice --subject 're: lunch?' --reply-to "${id:0:8}"
 snailbox list                # one line per Message, oldest stored first
 snailbox list --to bob --from alice --json
+snailbox list --after "${id:0:8}" --limit 20   # catch up from the last Message handled
 ```
 
 `create` needs `--from` (there is no default Sender and no fallback to the operating-system
@@ -46,6 +47,19 @@ objects `show --json` prints, with full ids. `--to <name>` keeps Messages with t
 their Receivers, `--from <name>` keeps Messages from that Sender, and both together keep only
 Messages satisfying both. An empty Inbox, or filters matching nothing, print nothing (an empty
 array with `--json`) and exit 0.
+
+`--after <id>` and `--before <id>` are cursors: they keep the Messages this Inbox stored after
+or before the named one, and together bound a range. They take a Message id or a unique
+prefix, with the same no-match and several-match errors as `show`, never a date or time (a
+value shaped like one is refused). `--limit <n>` defaults to 50 and `--limit 0` removes it.
+When more Messages match than the limit, `--after` (alone or with `--before`) returns the first
+n after that Message, and `--before` alone or no cursor returns the most recent n; either way
+they print oldest first. A limit that left Messages out ends the text output with a line
+giving how many and the flag (`--after <id>` or `--before <id>`, with a full id) that reads
+them. With `--json` that case prints an object instead of the array: `messages` (the array),
+`left_out` (the count) and `next` (the flag); when nothing was left out the output is the plain
+array, with no notice. The cursors and limit combine with `--to` and `--from`, which narrow
+the matches before the limit applies.
 
 The Inbox is a SQLite database in the folder `SNAILBOX_HOME` names when it is set, else
 `$XDG_DATA_HOME/snailbox/` when that is set, else `~/.local/share/snailbox/`. An empty

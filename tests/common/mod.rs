@@ -73,6 +73,35 @@ pub fn create(home: &Path, args: &[&str]) -> String {
     create_with(command_in(home), args)
 }
 
+/// Stores a Message from `from` to `to` with `subject` and returns its id.
+pub fn store(home: &TempFolder, from: &str, to: &[&str], subject: &str) -> String {
+    let mut args = vec!["--from", from, "--subject", subject];
+    for name in to {
+        args.push("--to");
+        args.push(name);
+    }
+    create(home.path(), &args)
+}
+
+/// The subjects `list` printed with `args`, one per line, in the order printed. Text lines are
+/// tab-separated and the subject is the last field; a line without a tab (the notice that the
+/// limit left Messages out) is not a Message and is skipped.
+pub fn listed_subjects(home: &TempFolder, args: &[&str]) -> Vec<String> {
+    let output = snailbox(home.path(), &[&["list"], args].concat());
+    assert!(output.status.success(), "list failed: {}", stderr(&output));
+    assert!(output.stderr.is_empty(), "stderr was {}", stderr(&output));
+    stdout(&output)
+        .lines()
+        .filter(|line| line.contains('\t'))
+        .map(|line| {
+            line.rsplit('\t')
+                .next()
+                .expect("a subject field")
+                .to_owned()
+        })
+        .collect()
+}
+
 /// Runs `create` through `command`, whose environment the caller has set, and returns the id
 /// it printed, failing the test if the command failed.
 pub fn create_with(mut command: Command, args: &[&str]) -> String {

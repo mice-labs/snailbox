@@ -4,35 +4,8 @@
 
 mod common;
 
-use common::{create, snailbox, stderr, stdout, TempFolder};
+use common::{listed_subjects, snailbox, stderr, stdout, store, TempFolder};
 use serde_json::Value;
-
-/// Stores a Message from `from` to `to` with `subject` and returns its id.
-fn store(home: &TempFolder, from: &str, to: &[&str], subject: &str) -> String {
-    let mut args = vec!["--from", from, "--subject", subject];
-    for name in to {
-        args.push("--to");
-        args.push(name);
-    }
-    create(home.path(), &args)
-}
-
-/// The subjects `list` printed with `args`, one per line, in the order printed. Text lines are
-/// tab-separated and the subject is the last field.
-fn listed_subjects(home: &TempFolder, args: &[&str]) -> Vec<String> {
-    let output = snailbox(home.path(), &[&["list"], args].concat());
-    assert!(output.status.success(), "list failed: {}", stderr(&output));
-    assert!(output.stderr.is_empty(), "stderr was {}", stderr(&output));
-    stdout(&output)
-        .lines()
-        .map(|line| {
-            line.rsplit('\t')
-                .next()
-                .expect("a subject field")
-                .to_owned()
-        })
-        .collect()
-}
 
 #[test]
 fn list_on_a_fresh_inbox_prints_nothing_and_succeeds() {

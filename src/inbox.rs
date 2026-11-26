@@ -127,22 +127,86 @@ impl Inbox {
     }
 
     /// The Messages matching `filter`, in the order this Inbox stored them, oldest first
-    /// (ADR 0001); creation time plays no part in the order.
-    pub fn list(&self, filter: &ListFilter) -> Result<Vec<Message>> {
+    /// (ADR 0001); creation time plays no part in the order. When the limit cuts the matches,
+    /// the oldest are kept if `after` is given and the newest otherwise, and the listing says
+    /// what was left out and where to continue.
+    pub fn list(&self, filter: &ListFilter) -> Result<Listing> {
+        let after = filter
+            .after
+            .as_ref()
+            .map(|prefix| self.arrival_of(prefix))
+            .transpose()?;
+        let before = filter
+            .before
+            .as_ref()
+            .map(|prefix| self.arrival_of(prefix))
+            .transpose()?;
         let mut statement = self.connection.prepare(&format!(
             "{SELECT_MESSAGE}
              WHERE (?1 IS NULL OR sender = ?1)
                AND (?2 IS NULL OR EXISTS (
                     SELECT 1 FROM receivers
                     WHERE receivers.arrival = messages.arrival AND receivers.name = ?2))
+               AND (?3 IS NULL OR arrival > ?3)
+               AND (?4 IS NULL OR arrival < ?4)
              ORDER BY arrival"
         ))?;
-        let rows = statement
-            .query_map(params![filter.from, filter.to], StoredMessage::from_row)?
+        let mut rows = statement
+            .query_map(
+                params![filter.from, filter.to, after, before],
+                StoredMessage::from_row,
+            )?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        rows.into_iter()
+        let excess = filter
+            .limit
+            .map_or(0, |limit| rows.len().saturating_sub(limit));
+        let (kept, left_out) = if excess == 0 {
+            (rows, None)
+        } else if after.is_some() {
+            rows.truncate(rows.len() - excess);
+            (rows, Some(Side::Newer))
+        } else {
+            let kept = rows.split_off(excess);
+            (kept, Some(Side::Older))
+        };
+        let left_out = left_out
+            .map(|side| {
+                let edge = match side {
+                    Side::Newer => kept.last(),
+                    Side::Older => kept.first(),
+                }
+                .expect("a limit that left Messages out kept at least one");
+                let id = edge
+                    .id
+                    .parse()
+                    .with_context(|| format!("the Inbox holds a malformed id {}", edge.id))?;
+                Ok::<_, anyhow::Error>(match side {
+                    Side::Newer => LeftOut::Newer {
+                        count: excess,
+                        after: id,
+                    },
+                    Side::Older => LeftOut::Older {
+                        count: excess,
+                        before: id,
+                    },
+                })
+            })
+            .transpose()?;
+        let messages = kept
+            .into_iter()
             .map(|row| self.with_receivers(row))
-            .collect()
+            .collect::<Result<_>>()?;
+        Ok(Listing { messages, left_out })
+    }
+
+    /// The arrival number of the one Message whose id starts with `prefix`.
+    fn arrival_of(&self, prefix: &IdPrefix) -> Result<i64> {
+        let id = self.resolve(prefix)?;
+        Ok(self.connection.query_row(
+            "SELECT arrival FROM messages WHERE id = ?1",
+            [id.to_string()],
+            |row| row.get(0),
+        )?)
     }
 
     /// The Message `row` stores, with its Receivers read from the `receivers` table.
@@ -183,6 +247,66 @@ pub struct ListFilter {
     pub to: Option<String>,
     /// Matches a Message whose Sender is this name.
     pub from: Option<String>,
+    /// Matches only Messages this Inbox stored after the Message with this id or prefix.
+    pub after: Option<IdPrefix>,
+    /// Matches only Messages this Inbox stored before the Message with this id or prefix.
+    pub before: Option<IdPrefix>,
+    /// The most Messages to return; `None` returns every match.
+    pub limit: Option<usize>,
+}
+
+/// What `list` found: the Messages returned, oldest first, and what the limit cut.
+pub struct Listing {
+    pub messages: Vec<Message>,
+    /// `None` when the limit cut nothing.
+    pub left_out: Option<LeftOut>,
+}
+
+/// The Messages a limit cut from a listing, and the cursor that continues from the ones kept.
+pub enum LeftOut {
+    /// `count` Messages stored before the first one returned; `before` is that Message's id.
+    Older { count: usize, before: MessageId },
+    /// `count` Messages stored after the last one returned; `after` is that Message's id.
+    Newer { count: usize, after: MessageId },
+}
+
+impl LeftOut {
+    pub fn count(&self) -> usize {
+        match self {
+            Self::Older { count, .. } | Self::Newer { count, .. } => *count,
+        }
+    }
+
+    /// The `list` flag and id that read the Messages left out.
+    pub fn next_flag(&self) -> String {
+        match self {
+            Self::Older { before, .. } => format!("--before {before}"),
+            Self::Newer { after, .. } => format!("--after {after}"),
+        }
+    }
+
+    /// The line text output ends with.
+    pub fn to_notice(&self) -> String {
+        let direction = match self {
+            Self::Older { .. } => "older",
+            Self::Newer { .. } => "newer",
+        };
+        let noun = if self.count() == 1 {
+            "Message"
+        } else {
+            "Messages"
+        };
+        format!(
+            "{} {direction} {noun} left out by the limit; read them with {} (or --limit 0 for no limit)",
+            self.count(),
+            self.next_flag()
+        )
+    }
+}
+
+enum Side {
+    Older,
+    Newer,
 }
 
 const SELECT_MESSAGE: &str =
