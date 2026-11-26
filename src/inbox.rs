@@ -8,6 +8,7 @@ use anyhow::{bail, Context, Result};
 use chrono::{DateTime, SecondsFormat, Utc};
 use rusqlite::{params, Connection, Row, Rows, TransactionBehavior};
 
+use crate::listing::{Cursor, LeftOut, Listing};
 use crate::location;
 use crate::message::{IdPrefix, Message, MessageId, NewMessage};
 
@@ -318,27 +319,6 @@ pub struct ListFilter {
     pub thread: Option<IdPrefix>,
     /// The most Messages to return; `None` returns every match.
     pub limit: Option<NonZeroUsize>,
-}
-
-/// What `list` found: the Messages returned, oldest first, and what the limit cut.
-pub struct Listing {
-    pub messages: Vec<Message>,
-    /// `None` when the limit cut nothing.
-    pub left_out: Option<LeftOut>,
-}
-
-/// The Messages a limit cut from a listing, and the cursor that continues from the ones kept.
-pub struct LeftOut {
-    pub count: usize,
-    pub cursor: Cursor,
-}
-
-/// Where the Messages a limit cut lie, named by the kept Message next to them.
-pub enum Cursor {
-    /// They were stored before the first Message returned, whose id this is.
-    Before(MessageId),
-    /// They were stored after the last Message returned, whose id this is.
-    After(MessageId),
 }
 
 /// Prepends the SELECT that reads a whole Message, its Receivers aggregated in position order

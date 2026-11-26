@@ -51,14 +51,8 @@ fn page(home: &TempFolder, after: &str, limit: usize) -> (Vec<(String, String)>,
     );
     assert!(output.status.success(), "list failed: {}", stderr(&output));
     let parsed: Value = serde_json::from_str(&stdout(&output)).expect("list prints JSON");
-    let (messages, more) = match &parsed {
-        Value::Array(messages) => (messages, false),
-        Value::Object(object) => (
-            object["messages"].as_array().expect("a messages array"),
-            true,
-        ),
-        other => panic!("list printed neither an array nor an object: {other}"),
-    };
+    let more = parsed["left_out"].as_u64().expect("a left_out count") > 0;
+    let messages = parsed["messages"].as_array().expect("a messages array");
     let messages = messages
         .iter()
         .map(|message| {

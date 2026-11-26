@@ -49,11 +49,14 @@ them, which creation times never decide (ADR 0001). There is no sort flag. Each 
 text line is tab-separated: the first eight characters of the id, the creation time in local
 time, the Sender, the Receivers joined by commas and the subject; a tab or line break inside
 one of them prints as a space. A limit that left Messages out adds one last line with no tabs
-(below). `--json` prints an array of the objects `show --json` prints, with full ids (an
-object holding that array when a limit left Messages out, below). `--to <name>` keeps
+(below). `--json` always prints one object, `{"messages": [...], "left_out": <count>,
+"next": <flag and id, or null>}` (below). Each element of `messages` holds what the text line
+does, with the full id: `id`, `created_at` (RFC 3339 UTC), `from`, `to` and `subject`. It has
+no `body` or `parent`; `show --json` has both. `--to <name>` keeps
 Messages with that name among their Receivers, `--from <name>` keeps Messages from that
 Sender, and both together keep only Messages satisfying both. An empty Inbox, or filters
-matching nothing, print nothing (an empty array with `--json`) and exit 0.
+matching nothing, print nothing (with `--json`, an object whose `messages` is empty) and
+exit 0.
 
 `--after <id>` and `--before <id>` are cursors: they keep the Messages this Inbox stored after
 or before the named one, and together bound a range. They take a Message id or a unique
@@ -75,11 +78,9 @@ limit, `--after` (alone or with `--before`) returns the first n after that Messa
 either way they print oldest first. A limit that left Messages out ends the text output with
 a line giving how many and the flag (`--after <id>` or `--before <id>`, with a full id) that
 reads them; the flag replaces the same cursor in the command (any `--before` for the older
-ones, any `--after` for the newer ones), whose other flags stay. With `--json` that case
-prints an object instead of the array: `messages` (the array), `left_out` (the count) and
-`next` (the flag); when nothing was left out the output is the plain array, with no notice.
-So a consumer of `--json` handles both shapes: an array, or an object whose `messages` is the
-array. The cursors and limit combine with `--to` and `--from`, which narrow the matches
+ones, any `--after` for the newer ones), whose other flags stay. With `--json`, `left_out` is
+that count and `next` that flag and id; when nothing was left out `left_out` is 0 and `next`
+is null, so the object has one shape either way. The cursors and limit combine with `--to` and `--from`, which narrow the matches
 before the limit applies, as do the thread filters.
 
 The Inbox is a SQLite database in the folder `SNAILBOX_HOME` names when it is set, else

@@ -4,7 +4,7 @@
 
 mod common;
 
-use common::{listed_subjects, snailbox, stderr, stdout, store, TempFolder};
+use common::{create, listed_subjects, snailbox, stderr, stdout, store, TempFolder};
 use serde_json::Value;
 
 #[test]
@@ -19,14 +19,17 @@ fn list_on_a_fresh_inbox_prints_nothing_and_succeeds() {
 }
 
 #[test]
-fn list_on_an_empty_inbox_with_json_prints_an_empty_array() {
+fn list_on_an_empty_inbox_with_json_prints_an_object_with_no_messages() {
     let home = TempFolder::new("list-empty-json");
 
     let output = snailbox(home.path(), &["list", "--json"]);
 
     assert!(output.status.success(), "list failed: {}", stderr(&output));
     let value: Value = serde_json::from_str(&stdout(&output)).expect("stdout is JSON");
-    assert_eq!(value, serde_json::json!([]));
+    assert_eq!(
+        value,
+        serde_json::json!({"messages": [], "left_out": 0, "next": null})
+    );
 }
 
 #[test]
@@ -105,7 +108,9 @@ fn list_json_returns_the_same_messages_with_full_ids_in_arrival_order() {
 
     assert!(output.status.success(), "list failed: {}", stderr(&output));
     let value: Value = serde_json::from_str(&stdout(&output)).expect("stdout is JSON");
-    let messages = value.as_array().expect("a JSON array");
+    assert_eq!(value["left_out"], 0);
+    assert_eq!(value["next"], Value::Null);
+    let messages = value["messages"].as_array().expect("a messages array");
     assert_eq!(messages.len(), 2);
     assert_eq!(messages[0]["id"], first.as_str());
     assert_eq!(messages[0]["from"], "alice");
@@ -113,6 +118,42 @@ fn list_json_returns_the_same_messages_with_full_ids_in_arrival_order() {
     assert_eq!(messages[1]["id"], second.as_str());
     assert_eq!(messages[1]["to"], serde_json::json!(["bob", "dave"]));
     assert!(messages[1]["created_at"].as_str().is_some());
+}
+
+#[test]
+fn list_json_messages_carry_no_body_or_parent_while_show_json_does() {
+    let home = TempFolder::new("list-json-no-body");
+    let root = store(&home, "alice", &["bob"], "root");
+    let reply = create(
+        home.path(),
+        &[
+            "--from",
+            "bob",
+            "--to",
+            "alice",
+            "--subject",
+            "reply",
+            "--body",
+            "the body",
+            "--reply-to",
+            &root,
+        ],
+    );
+
+    let listed = snailbox(home.path(), &["list", "--json"]);
+
+    let value: Value = serde_json::from_str(&stdout(&listed)).expect("stdout is JSON");
+    let messages = value["messages"].as_array().expect("a messages array");
+    assert_eq!(messages.len(), 2);
+    for message in messages {
+        let mut keys: Vec<_> = message.as_object().expect("an object").keys().collect();
+        keys.sort();
+        assert_eq!(keys, ["created_at", "from", "id", "subject", "to"]);
+    }
+    let shown = snailbox(home.path(), &["show", &reply, "--json"]);
+    let shown: Value = serde_json::from_str(&stdout(&shown)).expect("stdout is JSON");
+    assert_eq!(shown["body"], "the body");
+    assert_eq!(shown["parent"], root.as_str());
 }
 
 #[test]

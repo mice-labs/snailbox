@@ -1,5 +1,5 @@
 //! A Message, its id, and the forms it prints in: `show`'s text and JSON, `list`'s one-line
-//! text and the JSON object `list --json` embeds.
+//! text and the JSON object `list --json` holds per Message.
 
 use std::fmt;
 
@@ -144,7 +144,7 @@ impl Message {
     }
 
     /// The object `to_json` prints, for embedding in a larger document.
-    pub fn to_json_value(&self) -> serde_json::Value {
+    fn to_json_value(&self) -> serde_json::Value {
         serde_json::json!({
             "id": self.id.to_string(),
             "from": self.sender,
@@ -153,6 +153,18 @@ impl Message {
             "created_at": self.created_at.to_rfc3339_opts(SecondsFormat::Secs, true),
             "body": self.body,
             "parent": self.parent.as_ref().map(ToString::to_string),
+        })
+    }
+
+    /// The object `list --json` holds per Message: the fields of `to_list_line`, with the full
+    /// id and an RFC 3339 UTC `created_at`, and no `body` or `parent`.
+    pub fn to_list_json_value(&self) -> serde_json::Value {
+        serde_json::json!({
+            "id": self.id.to_string(),
+            "from": self.sender,
+            "to": self.receivers,
+            "subject": self.subject,
+            "created_at": self.created_at.to_rfc3339_opts(SecondsFormat::Secs, true),
         })
     }
 }

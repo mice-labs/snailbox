@@ -97,15 +97,17 @@ fn an_inbox_without_indexes_opens_lists_and_gains_them() {
         serde_json::from_str(&stdout(&output)).expect("list --json prints JSON");
     assert_eq!(
         listed,
-        serde_json::json!([{
-            "id": REPLY_ID,
-            "from": "bob",
-            "to": ["alice"],
-            "subject": "reply",
-            "created_at": "2026-11-26T01:02:03Z",
-            "body": "ok",
-            "parent": ROOT_ID,
-        }])
+        serde_json::json!({
+            "messages": [{
+                "id": REPLY_ID,
+                "from": "bob",
+                "to": ["alice"],
+                "subject": "reply",
+                "created_at": "2026-11-26T01:02:03Z",
+            }],
+            "left_out": 0,
+            "next": null,
+        })
     );
     assert_eq!(index_names(home.path()), EXPECTED_INDEXES);
 }

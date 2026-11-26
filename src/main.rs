@@ -1,5 +1,6 @@
 mod body;
 mod inbox;
+mod listing;
 mod location;
 mod message;
 
@@ -11,8 +12,9 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use body::BodySource;
-use inbox::{Cursor, IdInput, Inbox, LeftOut, ListFilter, NoMessageFor};
-use message::{IdPrefix, Message, MessageId, NewMessage};
+use inbox::{IdInput, Inbox, ListFilter, NoMessageFor};
+use listing::{AFTER_FLAG, BEFORE_FLAG};
+use message::{IdPrefix, NewMessage};
 
 #[derive(Parser)]
 #[command(
@@ -87,9 +89,10 @@ enum Command {
         /// the last n before --before (alone), else the most recent n
         #[arg(long, value_name = "N", default_value_t = 50)]
         limit: usize,
-        /// Print the Messages as a JSON array; when the limit left Messages out, an object
-        /// holding the array as `messages`, the count as `left_out` and the flag that reads
-        /// them as `next`
+        /// Print one JSON object: `messages` (each with id, creation time, Sender, Receivers
+        /// and subject, as in the text; no body or parent, which `show --json` has),
+        /// `left_out` (how many the limit left out, 0 for none) and `next` (the flag and id
+        /// that read them, null when none were left out)
         #[arg(long)]
         json: bool,
     },
@@ -112,10 +115,6 @@ fn name(text: &str) -> Result<String, String> {
     Ok(text.to_owned())
 }
 
-// Only the cursor flags are constants: the id hint and the left-out notice both name them.
-const AFTER_FLAG: &str = "--after";
-const BEFORE_FLAG: &str = "--before";
-
 /// Adds to a no-match error from an argument or flag that takes a Message id the hint that it
 /// takes one, and where to find one. A date or time of any format reaches this error unless its
 /// characters are the start of a stored id (an all-digit value such as 20261126 is a valid hex
@@ -136,49 +135,6 @@ fn hint_id_error(error: anyhow::Error) -> anyhow::Error {
     anyhow::anyhow!(
         "{no_message}; {named} takes a Message id (or a unique prefix of one), not a date or \
          time; run `snailbox list` to find one"
-    )
-}
-
-/// The cursor flag that reads the Messages a limit left out, with the direction they lie in
-/// and the id the flag takes.
-struct LeftOutCursor<'a> {
-    direction: &'static str,
-    flag: &'static str,
-    id: &'a MessageId,
-}
-
-/// `--before` reads older Messages, `--after` newer ones.
-fn left_out_cursor(left_out: &LeftOut) -> LeftOutCursor<'_> {
-    match &left_out.cursor {
-        Cursor::Before(before) => LeftOutCursor {
-            direction: "older",
-            flag: BEFORE_FLAG,
-            id: before,
-        },
-        Cursor::After(after) => LeftOutCursor {
-            direction: "newer",
-            flag: AFTER_FLAG,
-            id: after,
-        },
-    }
-}
-
-/// The flag and id that read the Messages a limit left out.
-fn next_flag(left_out: &LeftOut) -> String {
-    let cursor = left_out_cursor(left_out);
-    format!("{} {}", cursor.flag, cursor.id)
-}
-
-/// The line text output ends with when a limit left Messages out.
-fn left_out_notice(left_out: &LeftOut) -> String {
-    let cursor = left_out_cursor(left_out);
-    let count = left_out.count;
-    let noun = if count == 1 { "Message" } else { "Messages" };
-    format!(
-        "{count} {} {noun} left out by the limit; read them with the same flags but {} in place of any {} (or --limit 0 for no limit)",
-        cursor.direction,
-        next_flag(left_out),
-        cursor.flag
     )
 }
 
@@ -242,30 +198,9 @@ fn run(command: Command) -> Result<()> {
             };
             let listing = inbox.list(&filter).map_err(hint_id_error)?;
             if json {
-                let messages: Vec<_> = listing
-                    .messages
-                    .iter()
-                    .map(Message::to_json_value)
-                    .collect();
-                let messages = serde_json::Value::Array(messages);
-                match &listing.left_out {
-                    None => println!("{messages}"),
-                    Some(left_out) => println!(
-                        "{}",
-                        serde_json::json!({
-                            "messages": messages,
-                            "left_out": left_out.count,
-                            "next": next_flag(left_out),
-                        })
-                    ),
-                }
+                println!("{}", listing.to_json());
             } else {
-                for message in &listing.messages {
-                    println!("{}", message.to_list_line());
-                }
-                if let Some(left_out) = &listing.left_out {
-                    println!("{}", left_out_notice(left_out));
-                }
+                print!("{}", listing.to_text());
             }
         }
         Command::Show { prefix, json } => {

@@ -381,13 +381,21 @@ fn json_with_both_cursors_names_the_after_flag_as_next() {
 }
 
 #[test]
-fn json_stays_a_plain_array_when_nothing_was_left_out() {
+fn json_is_still_an_object_when_nothing_was_left_out() {
     let (home, _) = home_with(3, "json-complete");
 
     let output = snailbox(home.path(), &["list", "--limit", "3", "--json"]);
 
     let value: Value = serde_json::from_str(&stdout(&output)).expect("stdout is JSON");
-    assert_eq!(value.as_array().expect("a JSON array").len(), 3);
+    assert_eq!(value["left_out"], 0);
+    assert_eq!(value["next"], Value::Null);
+    assert_eq!(
+        value["messages"]
+            .as_array()
+            .expect("a messages array")
+            .len(),
+        3
+    );
 }
 
 #[test]
