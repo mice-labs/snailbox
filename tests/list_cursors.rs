@@ -6,10 +6,17 @@
 mod common;
 
 use common::{
-    failed_list, listed_subjects, snailbox, stdout, store, two_ids_sharing_a_first_character,
-    TempFolder,
+    failed_list, listed_subjects, snailbox, stderr, stdout, store,
+    two_ids_sharing_a_first_character, TempFolder,
 };
 use serde_json::Value;
+use std::process::Output;
+
+/// The JSON a successful `list --json` printed.
+fn json_of(output: &Output) -> Value {
+    assert!(output.status.success(), "list failed: {}", stderr(output));
+    serde_json::from_str(&stdout(output)).expect("stdout is JSON")
+}
 
 /// A home holding Messages "m1" to "mN" from alice to bob, and their ids in order.
 fn home_with(count: usize, name: &str) -> (TempFolder, Vec<String>) {
@@ -302,7 +309,7 @@ fn json_carries_what_the_limit_left_out_as_a_field() {
 
     let output = snailbox(home.path(), &["list", "--limit", "2", "--json"]);
 
-    let value: Value = serde_json::from_str(&stdout(&output)).expect("stdout is JSON");
+    let value = json_of(&output);
     assert_eq!(value["left_out"], 3);
     assert_eq!(value["next"], format!("--before {}", ids[3]));
     let messages = value["messages"].as_array().expect("a messages array");
@@ -319,7 +326,7 @@ fn json_with_after_names_the_after_flag_as_next() {
         &["list", "--after", &ids[0], "--limit", "2", "--json"],
     );
 
-    let value: Value = serde_json::from_str(&stdout(&output)).expect("stdout is JSON");
+    let value = json_of(&output);
     assert_eq!(value["left_out"], 3);
     assert_eq!(value["next"], format!("--after {}", ids[2]));
     assert_eq!(value["messages"][0]["subject"], "m2");
@@ -334,7 +341,7 @@ fn json_with_before_alone_names_the_before_flag_as_next() {
         &["list", "--before", &ids[5], "--limit", "2", "--json"],
     );
 
-    let value: Value = serde_json::from_str(&stdout(&output)).expect("stdout is JSON");
+    let value = json_of(&output);
     assert_eq!(value["left_out"], 3);
     assert_eq!(value["next"], format!("--before {}", ids[3]));
     assert_eq!(value["messages"][0]["subject"], "m4");
@@ -374,7 +381,7 @@ fn json_with_both_cursors_names_the_after_flag_as_next() {
         ],
     );
 
-    let value: Value = serde_json::from_str(&stdout(&output)).expect("stdout is JSON");
+    let value = json_of(&output);
     assert_eq!(value["left_out"], 3);
     assert_eq!(value["next"], format!("--after {}", ids[2]));
     assert_eq!(value["messages"][0]["subject"], "m2");
@@ -386,7 +393,7 @@ fn json_is_still_an_object_when_nothing_was_left_out() {
 
     let output = snailbox(home.path(), &["list", "--limit", "3", "--json"]);
 
-    let value: Value = serde_json::from_str(&stdout(&output)).expect("stdout is JSON");
+    let value = json_of(&output);
     assert_eq!(value["left_out"], 0);
     assert_eq!(value["next"], Value::Null);
     assert_eq!(

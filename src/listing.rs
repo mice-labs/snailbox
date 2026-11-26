@@ -27,44 +27,43 @@ pub enum Cursor {
     After(MessageId),
 }
 
-impl LeftOut {
-    /// `older` for `Before`, `newer` for `After`.
+impl Cursor {
     fn direction(&self) -> &'static str {
-        match self.cursor {
+        match self {
             Cursor::Before(_) => "older",
             Cursor::After(_) => "newer",
         }
     }
 
-    /// `--before` reads older Messages, `--after` newer ones.
     fn flag(&self) -> &'static str {
-        match self.cursor {
+        match self {
             Cursor::Before(_) => BEFORE_FLAG,
             Cursor::After(_) => AFTER_FLAG,
         }
     }
 
-    /// The id of the kept Message the cursor names.
     fn id(&self) -> &MessageId {
-        match &self.cursor {
+        match self {
             Cursor::Before(id) | Cursor::After(id) => id,
         }
     }
+}
 
+impl LeftOut {
     /// The flag and id that read the Messages a limit left out.
-    fn next_flag(&self) -> String {
-        format!("{} {}", self.flag(), self.id())
+    fn next_args(&self) -> String {
+        format!("{} {}", self.cursor.flag(), self.cursor.id())
     }
 
     /// The line text output ends with when a limit left Messages out.
     fn notice(&self) -> String {
-        let direction = self.direction();
-        let flag = self.flag();
+        let direction = self.cursor.direction();
+        let flag = self.cursor.flag();
         let count = self.count;
         let noun = if count == 1 { "Message" } else { "Messages" };
         format!(
             "{count} {direction} {noun} left out by the limit; read them with the same flags but {} in place of any {flag} (or --limit 0 for no limit)",
-            self.next_flag(),
+            self.next_args(),
         )
     }
 }
@@ -97,7 +96,7 @@ impl Listing {
         serde_json::json!({
             "messages": messages,
             "left_out": self.left_out.as_ref().map_or(0, |left_out| left_out.count),
-            "next": self.left_out.as_ref().map(LeftOut::next_flag),
+            "next": self.left_out.as_ref().map(LeftOut::next_args),
         })
         .to_string()
     }

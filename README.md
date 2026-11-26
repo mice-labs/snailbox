@@ -54,8 +54,8 @@ one of them prints as a space. A limit that left Messages out adds one last line
 does, with the full id: `id`, `created_at` (RFC 3339 UTC), `from`, `to` and `subject`. It has
 no `body` or `parent`; `show --json` has both. `--to <name>` keeps Messages with that name
 among their Receivers, `--from <name>` keeps Messages from that Sender, and both together
-keep only Messages satisfying both. An empty Inbox, or filters matching nothing, print
-nothing (with `--json`, an object whose `messages` is empty) and exit 0.
+keep only Messages satisfying both. An empty Inbox, or filters matching nothing, exit 0 and
+print nothing in text form, or with `--json` an object whose `messages` is empty.
 
 `--after <id>` and `--before <id>` are cursors: they keep the Messages this Inbox stored after
 or before the named one, and together bound a range. They take a Message id or a unique
