@@ -98,10 +98,14 @@ fn name(text: &str) -> Result<String, String> {
     Ok(text.to_owned())
 }
 
-/// Adds to a no-match error from a cursor the hint that the flag takes a Message id. Any
-/// cursor value matching no stored id, a date or time of any format included, reaches this
-/// error, since ids are random UUIDs (ADR 0001); the flag is the one whose prefix failed, `--after`
-/// when both were given the same value.
+const AFTER_FLAG: &str = "--after";
+const BEFORE_FLAG: &str = "--before";
+
+/// Adds to a no-match error from a cursor the hint that the flag takes a Message id. A date
+/// or time of any format reaches this error unless its characters are the start of a stored
+/// id (an all-digit value such as 20261126 is a valid hex prefix, and ids are random UUIDs,
+/// ADR 0001); the flag is the one whose prefix failed, `--after` when both were given the
+/// same value.
 fn hint_cursor_error(
     error: anyhow::Error,
     after: Option<&IdPrefix>,
@@ -111,13 +115,13 @@ fn hint_cursor_error(
         return error;
     };
     let flag = if after.map(IdPrefix::as_str) == Some(no_message.prefix.as_str()) {
-        "--after"
+        AFTER_FLAG
     } else {
         debug_assert_eq!(
             before.map(IdPrefix::as_str),
             Some(no_message.prefix.as_str())
         );
-        "--before"
+        BEFORE_FLAG
     };
     anyhow::anyhow!(
         "{no_message}; {flag} takes a Message id (or a unique prefix of one), not a date or time"
@@ -125,28 +129,45 @@ fn hint_cursor_error(
 }
 
 /// The cursor flag that reads the Messages a limit left out, with the direction they lie in
-/// and the id the flag takes: `--before` for older ones, `--after` for newer ones.
-fn left_out_cursor(left_out: &LeftOut) -> (&'static str, &'static str, &MessageId) {
+/// and the id the flag takes.
+struct LeftOutCursor<'a> {
+    direction: &'static str,
+    flag: &'static str,
+    id: &'a MessageId,
+}
+
+/// `--before` reads older Messages, `--after` newer ones.
+fn left_out_cursor(left_out: &LeftOut) -> LeftOutCursor<'_> {
     match left_out {
-        LeftOut::Older { before, .. } => ("older", "--before", before),
-        LeftOut::Newer { after, .. } => ("newer", "--after", after),
+        LeftOut::Older { before, .. } => LeftOutCursor {
+            direction: "older",
+            flag: BEFORE_FLAG,
+            id: before,
+        },
+        LeftOut::Newer { after, .. } => LeftOutCursor {
+            direction: "newer",
+            flag: AFTER_FLAG,
+            id: after,
+        },
     }
 }
 
 /// The flag and id that read the Messages a limit left out.
 fn next_flag(left_out: &LeftOut) -> String {
-    let (_, flag, id) = left_out_cursor(left_out);
-    format!("{flag} {id}")
+    let cursor = left_out_cursor(left_out);
+    format!("{} {}", cursor.flag, cursor.id)
 }
 
 /// The line text output ends with when a limit left Messages out.
 fn left_out_notice(left_out: &LeftOut) -> String {
-    let (direction, cursor, _) = left_out_cursor(left_out);
+    let cursor = left_out_cursor(left_out);
     let count = left_out.count();
     let noun = if count == 1 { "Message" } else { "Messages" };
     format!(
-        "{count} {direction} {noun} left out by the limit; read them with the same flags but {} in place of any {cursor} (or --limit 0 for no limit)",
-        next_flag(left_out)
+        "{count} {} {noun} left out by the limit; read them with the same flags but {} in place of any {} (or --limit 0 for no limit)",
+        cursor.direction,
+        next_flag(left_out),
+        cursor.flag
     )
 }
 

@@ -53,14 +53,15 @@ array with `--json`) and exit 0.
 `--after <id>` and `--before <id>` are cursors: they keep the Messages this Inbox stored after
 or before the named one, and together bound a range. They take a Message id or a unique
 prefix, with the same no-match and several-match errors as `show`, never a date or time: ids
-are random UUIDs, so a date or time (in any format, all-digit ones such as `20261126`
-included) matches no Message, and the no-match error then adds that the flag takes a Message
-id, not a date or time.
+are random UUIDs, so a date or time matches no Message and gets a no-match error that adds
+that the flag takes a Message id, not a date or time. The exception is an all-digit value
+such as `20261126`, which is also a valid id prefix: it is read as one, and matches a Message
+only when that Message's id happens to start with it.
 
 `--limit <n>` defaults to 50 and `--limit 0` removes it.
 When more Messages match than the limit, `--after` (alone or with `--before`) returns the first
-n after that Message, and `--before` alone or no cursor returns the most recent n; either way
-they print oldest first. A limit that left Messages out ends the text output with a line
+n after that Message, `--before` alone returns the last n before it, and no cursor returns
+the most recent n; either way they print oldest first. A limit that left Messages out ends the text output with a line
 giving how many and the flag (`--after <id>` or `--before <id>`, with a full id) that reads
 them; the flag replaces the same cursor in the command (any `--before` for the older ones,
 any `--after` for the newer ones), whose other flags stay. With `--json`

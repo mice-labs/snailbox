@@ -102,9 +102,11 @@ fn an_ambiguous_cursor_prefix_is_an_error_listing_the_matches() {
 
 #[test]
 fn a_date_or_time_cursor_is_an_error_saying_the_flag_takes_a_message_id() {
-    let (home, _) = home_with(1, "date");
+    let (home, ids) = home_with(1, "date");
 
     for flag in ["--after", "--before"] {
+        // An all-digit value is a valid hex id prefix, so one that this run's random id
+        // happens to start with is a real cursor, not a date; leave it out.
         for value in [
             "2026-11-26",
             "2026-11-26T10:00:00Z",
@@ -118,7 +120,10 @@ fn a_date_or_time_cursor_is_an_error_saying_the_flag_takes_a_message_id() {
             "2026",
             "202611",
             "00000000-0000-0000-0000-000000000000a",
-        ] {
+        ]
+        .into_iter()
+        .filter(|value| !ids[0].starts_with(value))
+        {
             let error = failed_list(&home, &[flag, value]);
             assert!(
                 error.contains(&format!("{flag} takes a Message id")),
@@ -340,6 +345,46 @@ fn json_with_before_alone_names_the_before_flag_as_next() {
     assert_eq!(value["left_out"], 3);
     assert_eq!(value["next"], format!("--before {}", ids[3]));
     assert_eq!(value["messages"][0]["subject"], "m4");
+}
+
+#[test]
+fn text_notice_with_both_cursors_points_after_the_last_message_returned() {
+    let (home, ids) = home_with(7, "notice-range");
+
+    let output = snailbox(
+        home.path(),
+        &[
+            "list", "--after", &ids[0], "--before", &ids[6], "--limit", "2",
+        ],
+    );
+
+    let text = stdout(&output);
+    let last = text.lines().last().expect("a last line");
+    assert!(
+        last.contains("3 newer Messages left out"),
+        "last was {last}"
+    );
+    assert!(
+        last.contains(&format!("--after {}", ids[2])),
+        "last was {last}"
+    );
+}
+
+#[test]
+fn json_with_both_cursors_names_the_after_flag_as_next() {
+    let (home, ids) = home_with(7, "json-range");
+
+    let output = snailbox(
+        home.path(),
+        &[
+            "list", "--after", &ids[0], "--before", &ids[6], "--limit", "2", "--json",
+        ],
+    );
+
+    let value: Value = serde_json::from_str(&stdout(&output)).expect("stdout is JSON");
+    assert_eq!(value["left_out"], 3);
+    assert_eq!(value["next"], format!("--after {}", ids[2]));
+    assert_eq!(value["messages"][0]["subject"], "m2");
 }
 
 #[test]
