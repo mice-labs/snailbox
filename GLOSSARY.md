@@ -32,6 +32,11 @@ The order in which the Inbox stored its Messages, oldest stored first. `list` al
 Messages in it, and it never depends on their creation times.
 _Avoid_: creation order, chronological order, sort order
 
+**Body source**:
+Where a Message's body is taken from when it is created: the text given directly, a file, or
+standard input. A Message has at most one, and none means a Message with no body.
+_Avoid_: body input
+
 **Reply**:
 A Message that answers one other Message, its **parent**.
 _Avoid_: response, follow-up

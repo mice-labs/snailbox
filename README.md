@@ -11,6 +11,23 @@ snailbox list                # one line per Message, oldest stored first
 snailbox list --to bob --from alice --json
 ```
 
+`create` needs `--from` (there is no default Sender and no fallback to the operating-system
+user or Git identity), at least one `--to` and `--subject`; without them, or with a blank
+`--from` or `--to`, it exits non-zero with an error on standard error. The body comes from at
+most one of `--body <text>`, `--body-file <path>` or `--stdin` (its Body source), so long text
+needs no shell quoting:
+
+```sh
+git log -5 | snailbox create --from alice --to bob --subject 'recent work' --stdin
+```
+
+Giving two body sources is an error, and so is a `--body-file` or `--stdin` input that is
+empty or only whitespace, so an upstream command that failed before printing anything cannot
+store a blank Message (one that failed after printing some text still gives a body). With no
+Body source the Message has no body. Subject and body have no length cap of snailbox's own;
+the operating system limits the total size of the command-line arguments, which caps
+`--subject` and `--body` but not `--body-file` or `--stdin`.
+
 `create` prints only the new Message's full id, a random UUID version 4. `show` takes that
 full id and exits non-zero with an error on standard error when no Message has it. There is
 no daemon: `create`, `show` and `list` each open the Inbox directly.
