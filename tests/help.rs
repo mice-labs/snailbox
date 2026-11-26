@@ -39,7 +39,15 @@ fn create_help_describes_every_option() {
 
     let stdout = stdout(&output);
     assert!(output.status.success(), "exit status was {}", output.status);
-    for option in ["--from", "--to", "--subject", "--body", "--reply-to"] {
+    for option in [
+        "--from",
+        "--to",
+        "--subject",
+        "--body ",
+        "--body-file",
+        "--stdin",
+        "--reply-to",
+    ] {
         let line = stdout
             .lines()
             .map(str::trim_start)

@@ -10,6 +10,23 @@ snailbox show "$id" --json   # JSON, creation time in RFC 3339 UTC
 snailbox create --from bob --to alice --subject 're: lunch?' --reply-to "${id:0:8}"
 ```
 
+`create` needs `--from` (there is no default Sender and no fallback to the operating-system
+user or Git identity), at least one `--to` and `--subject`; without them, or with a blank
+`--from` or `--to`, it exits non-zero with an error on standard error. The body comes from at
+most one of `--body <text>`, `--body-file <path>` or `--stdin` (its Body source), so long text
+needs no shell quoting:
+
+```sh
+git log -5 | snailbox create --from alice --to bob --subject 'recent work' --stdin
+```
+
+Giving two body sources is an error, and so is a `--body-file` or `--stdin` input that is
+empty or only whitespace, so an upstream command that failed before printing anything cannot
+store a blank Message (one that failed after printing some text still gives a body). With no
+Body source the Message has no body. Subject and body have no length cap of snailbox's own;
+the operating system limits the total size of the command-line arguments, which caps
+`--subject` and `--body` but not `--body-file` or `--stdin`.
+
 `create` prints only the new Message's full id, a random UUID version 4. `--reply-to` stores
 the Message as a Reply to the named Message, and `show` prints a Reply's parent id (a
 `Parent:` line in text, `parent` in JSON, null when the Message is not a Reply). `show` and
