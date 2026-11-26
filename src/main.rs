@@ -11,7 +11,7 @@ use clap::{Parser, Subcommand};
 
 use body::BodySource;
 use inbox::{Inbox, ListFilter};
-use message::{Message, NewMessage};
+use message::{IdPrefix, Message, NewMessage};
 
 #[derive(Parser)]
 #[command(
@@ -45,6 +45,9 @@ enum Command {
         /// Take the body from standard input, which must not be empty
         #[arg(long)]
         stdin: bool,
+        /// Store the Message as a Reply to this Message, named by its id or a unique prefix
+        #[arg(long)]
+        reply_to: Option<IdPrefix>,
     },
     /// List Messages in arrival order, oldest first
     ///
@@ -63,8 +66,9 @@ enum Command {
     },
     /// Print one Message in full
     Show {
-        /// The Message's full id
-        id: String,
+        /// The Message's id, or a prefix of it matching only that Message
+        #[arg(value_name = "ID")]
+        prefix: IdPrefix,
         /// Print the Message as JSON
         #[arg(long)]
         json: bool,
@@ -98,6 +102,7 @@ fn run(command: Command) -> Result<()> {
             body,
             body_file,
             stdin,
+            reply_to,
         } => {
             let body = BodySource::from_flags(body, body_file, stdin)
                 .map(BodySource::read)
@@ -108,6 +113,7 @@ fn run(command: Command) -> Result<()> {
                 receivers: to,
                 subject,
                 body,
+                reply_to,
             })?;
             println!("{id}");
         }
@@ -123,9 +129,9 @@ fn run(command: Command) -> Result<()> {
                 }
             }
         }
-        Command::Show { id, json } => {
+        Command::Show { prefix, json } => {
             let inbox = Inbox::open(&location::inbox_folder()?)?;
-            let message = inbox.show(&id)?;
+            let message = inbox.show(&prefix)?;
             if json {
                 println!("{}", message.to_json());
             } else {

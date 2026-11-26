@@ -7,6 +7,7 @@ Snails in one place
 id=$(snailbox create --from alice --to bob --to carol --subject 'lunch?' --body 'Noon?')
 snailbox show "$id"          # readable text, creation time in local time
 snailbox show "$id" --json   # JSON, creation time in RFC 3339 UTC
+snailbox create --from bob --to alice --subject 're: lunch?' --reply-to "${id:0:8}"
 snailbox list                # one line per Message, oldest stored first
 snailbox list --to bob --from alice --json
 ```
@@ -28,9 +29,13 @@ Body source the Message has no body. Subject and body have no length cap of snai
 the operating system limits the total size of the command-line arguments, which caps
 `--subject` and `--body` but not `--body-file` or `--stdin`.
 
-`create` prints only the new Message's full id, a random UUID version 4. `show` takes that
-full id and exits non-zero with an error on standard error when no Message has it. There is
-no daemon: `create`, `show` and `list` each open the Inbox directly.
+`create` prints only the new Message's full id, a random UUID version 4. `--reply-to` stores
+the Message as a Reply to the named Message, and `show` prints a Reply's parent id (a
+`Parent:` line in text, `parent` in JSON, null when the Message is not a Reply). `show` and
+`--reply-to` take a Message's id or any non-empty prefix of it, in either letter case, that
+matches exactly one Message; they exit non-zero with an error on standard error when the
+prefix is empty or no Message matches, or, listing the matches, when several do. There is no
+daemon: `create`, `show` and `list` each open the Inbox directly.
 
 `list` always returns Messages in arrival order, oldest first: the order this Inbox stored
 them, which creation times never decide (ADR 0001). There is no sort flag. Each text line is

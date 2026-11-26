@@ -34,12 +34,43 @@ impl std::str::FromStr for MessageId {
     }
 }
 
+/// The start of a Message's id as a person types it: a whole id or any non-empty prefix of
+/// one. Ids are stored in lowercase, so it is lowercased and matches whatever the case typed.
+#[derive(Clone)]
+pub struct IdPrefix(String);
+
+impl IdPrefix {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for IdPrefix {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::str::FromStr for IdPrefix {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        if text.is_empty() {
+            Err("an id prefix cannot be empty".to_string())
+        } else {
+            Ok(Self(text.to_lowercase()))
+        }
+    }
+}
+
 /// What a creator supplies for a new Message; the Inbox adds the id and creation time.
 pub struct NewMessage {
     pub sender: String,
     pub receivers: Vec<String>,
     pub subject: String,
     pub body: Option<String>,
+    /// The id, or a unique prefix of it, of the Message this one replies to.
+    pub reply_to: Option<IdPrefix>,
 }
 
 pub struct Message {
@@ -48,6 +79,7 @@ pub struct Message {
     pub receivers: Vec<String>,
     pub subject: String,
     pub body: Option<String>,
+    pub parent: Option<MessageId>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -57,12 +89,18 @@ fn one_line(text: &str) -> String {
 }
 
 impl Message {
-    /// Header lines, then a blank line and the body when there is one. The creation time is
-    /// in the local time zone, which chrono reads from `TZ` or else the system setting.
+    /// Header lines (with a `Parent:` line after `Subject:` for a Reply), then a blank line and
+    /// the body when there is one. The creation time is in the local time zone, which chrono
+    /// reads from `TZ` or else the system setting.
     pub fn to_text(&self) -> String {
         let created = self.local_time();
+        let parent = self
+            .parent
+            .as_ref()
+            .map(|parent| format!("Parent:   {parent}\n"))
+            .unwrap_or_default();
         let mut text = format!(
-            "Id:       {}\nFrom:     {}\nTo:       {}\nSubject:  {}\nCreated:  {created}\n",
+            "Id:       {}\nFrom:     {}\nTo:       {}\nSubject:  {}\n{parent}Created:  {created}\n",
             self.id,
             self.sender,
             self.receivers.join(", "),
@@ -98,7 +136,8 @@ impl Message {
             .format("%Y-%m-%d %H:%M:%S %:z")
     }
 
-    /// One JSON object; `created_at` is RFC 3339 in UTC and `body` is null when absent.
+    /// One JSON object; `created_at` is RFC 3339 in UTC, and `body` and `parent` are null when
+    /// absent.
     pub fn to_json(&self) -> String {
         self.to_json_value().to_string()
     }
@@ -112,6 +151,7 @@ impl Message {
             "subject": self.subject,
             "created_at": self.created_at.to_rfc3339_opts(SecondsFormat::Secs, true),
             "body": self.body,
+            "parent": self.parent.as_ref().map(ToString::to_string),
         })
     }
 }

@@ -4,10 +4,10 @@ use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, SecondsFormat, Utc};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection};
 
 use crate::location;
-use crate::message::{Message, MessageId, NewMessage};
+use crate::message::{IdPrefix, Message, MessageId, NewMessage};
 
 const DATABASE_FILE: &str = "inbox.sqlite3";
 
@@ -21,7 +21,8 @@ const SCHEMA: &str = "
         sender     TEXT NOT NULL,
         subject    TEXT NOT NULL,
         body       TEXT,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        parent     TEXT REFERENCES messages (id)
     );
     CREATE TABLE IF NOT EXISTS receivers (
         arrival  INTEGER NOT NULL REFERENCES messages (arrival),
@@ -50,6 +51,12 @@ impl Inbox {
 
     /// Stores `new` with a fresh id and the current time, and returns the id.
     pub fn create(&mut self, new: &NewMessage) -> Result<MessageId> {
+        let parent = new
+            .reply_to
+            .as_ref()
+            .map(|prefix| self.resolve(prefix))
+            .transpose()?
+            .map(|parent| parent.to_string());
         let id = MessageId::random();
         let created_at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
         let transaction = self
@@ -58,14 +65,15 @@ impl Inbox {
             .context("cannot store the Message")?;
         transaction
             .execute(
-                "INSERT INTO messages (id, sender, subject, body, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT INTO messages (id, sender, subject, body, created_at, parent)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![
                     id.to_string(),
                     new.sender,
                     new.subject,
                     new.body,
-                    created_at
+                    created_at,
+                    parent
                 ],
             )
             .context("cannot store the Message")?;
@@ -82,19 +90,39 @@ impl Inbox {
         Ok(id)
     }
 
-    /// The Message whose full id is `id`.
-    pub fn show(&self, id: &str) -> Result<Message> {
-        let row = self
-            .connection
-            .query_row(
-                &format!("{SELECT_MESSAGE} WHERE id = ?1"),
-                [id],
-                StoredMessage::from_row,
-            )
-            .optional()?;
-        let Some(row) = row else {
-            bail!("no Message has the id {id}");
-        };
+    /// The full id of the one Message whose id starts with `prefix` (ADR 0001); fails when no
+    /// Message or several do, listing the several.
+    fn resolve(&self, prefix: &IdPrefix) -> Result<MessageId> {
+        let mut statement = self.connection.prepare(
+            "SELECT id FROM messages WHERE substr(id, 1, length(?1)) = ?1 ORDER BY arrival",
+        )?;
+        let mut matches = statement
+            .query_map([prefix.as_str()], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        match matches.len() {
+            0 => bail!("no Message has an id starting with {prefix}"),
+            1 => {
+                let stored = matches.remove(0);
+                stored
+                    .parse()
+                    .with_context(|| format!("the Inbox holds a malformed id {stored}"))
+            }
+            _ => bail!(
+                "the id prefix {prefix} matches several Messages:\n{}",
+                matches.join("\n")
+            ),
+        }
+    }
+
+    /// The Message whose id is, or is the only one to start with, `prefix`; fails when no
+    /// Message does or several do.
+    pub fn show(&self, prefix: &IdPrefix) -> Result<Message> {
+        let id = self.resolve(prefix)?;
+        let row = self.connection.query_row(
+            &format!("{SELECT_MESSAGE} WHERE id = ?1"),
+            [id.to_string()],
+            StoredMessage::from_row,
+        )?;
         self.with_receivers(row)
     }
 
@@ -134,6 +162,14 @@ impl Inbox {
             receivers,
             subject: row.subject,
             body: row.body,
+            parent: row
+                .parent
+                .map(|parent| {
+                    parent
+                        .parse()
+                        .with_context(|| format!("the Inbox holds a malformed parent {parent}"))
+                })
+                .transpose()?,
             created_at: DateTime::parse_from_rfc3339(&row.created_at)
                 .with_context(|| format!("the Inbox holds a malformed time {}", row.created_at))?
                 .with_timezone(&Utc),
@@ -149,7 +185,8 @@ pub struct ListFilter {
     pub from: Option<String>,
 }
 
-const SELECT_MESSAGE: &str = "SELECT arrival, id, sender, subject, body, created_at FROM messages";
+const SELECT_MESSAGE: &str =
+    "SELECT arrival, id, sender, subject, body, created_at, parent FROM messages";
 
 /// A row of `messages` as stored, before its Receivers are attached.
 struct StoredMessage {
@@ -159,6 +196,7 @@ struct StoredMessage {
     subject: String,
     body: Option<String>,
     created_at: String,
+    parent: Option<String>,
 }
 
 impl StoredMessage {
@@ -170,6 +208,7 @@ impl StoredMessage {
             subject: row.get("subject")?,
             body: row.get("body")?,
             created_at: row.get("created_at")?,
+            parent: row.get("parent")?,
         })
     }
 }

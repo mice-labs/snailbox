@@ -46,6 +46,7 @@ fn create_help_describes_every_option() {
         "--body ",
         "--body-file",
         "--stdin",
+        "--reply-to",
     ] {
         let line = stdout
             .lines()
