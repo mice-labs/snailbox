@@ -149,9 +149,7 @@ impl Inbox {
     /// The stored row of the one Message whose id starts with `prefix` (ADR 0001); fails when
     /// no Message or several do, listing the several.
     fn resolve(&self, prefix: &IdPrefix) -> Result<StoredMessage> {
-        let mut statement = self.connection.prepare(&format!(
-            "{SELECT_MESSAGE} WHERE substr(id, 1, length(?1)) = ?1 ORDER BY arrival"
-        ))?;
+        let mut statement = self.connection.prepare(RESOLVE_SQL)?;
         let mut matches = statement
             .query_map([prefix.as_str()], StoredMessage::from_row)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -217,16 +215,7 @@ impl Inbox {
                 thread_filters.push(self.reach(&start.id, directions)?);
             }
         }
-        let mut statement = self.connection.prepare(&format!(
-            "{SELECT_MESSAGE}
-             WHERE (?1 IS NULL OR sender = ?1)
-               AND (?2 IS NULL OR EXISTS (
-                    SELECT 1 FROM receivers
-                    WHERE receivers.arrival = messages.arrival AND receivers.name = ?2))
-               AND (?3 IS NULL OR arrival > ?3)
-               AND (?4 IS NULL OR arrival < ?4)
-             ORDER BY arrival"
-        ))?;
+        let mut statement = self.connection.prepare(LIST_SQL)?;
         let mut rows = statement
             .query_map(
                 params![filter.from, filter.to, after, before],
@@ -267,20 +256,11 @@ impl Inbox {
     fn reach(&self, start: &str, directions: &[Direction]) -> Result<HashSet<String>> {
         let mut ids = HashSet::new();
         for direction in directions {
-            let step = match direction {
-                Direction::Up => {
-                    "SELECT messages.parent FROM messages
-                                  JOIN reached ON messages.id = reached.id
-                                  WHERE messages.parent IS NOT NULL"
-                }
-                Direction::Down => {
-                    "SELECT messages.id FROM messages
-                                    JOIN reached ON messages.parent = reached.id"
-                }
+            let sql = match direction {
+                Direction::Up => REACH_UP_SQL,
+                Direction::Down => REACH_DOWN_SQL,
             };
-            let mut statement = self.connection.prepare(&format!(
-                "WITH RECURSIVE reached(id) AS (SELECT ?1 UNION {step}) SELECT id FROM reached"
-            ))?;
+            let mut statement = self.connection.prepare(sql)?;
             let found = statement
                 .query_map([start], |row| row.get::<_, String>(0))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -373,8 +353,43 @@ impl LeftOut {
     }
 }
 
-const SELECT_MESSAGE: &str =
-    "SELECT arrival, id, sender, subject, body, created_at, parent FROM messages";
+/// Prepends the SELECT shared by the `messages` queries; `format!` cannot build a const, so the
+/// join is `concat!`, which takes literals only.
+macro_rules! select_message {
+    ($tail:literal) => {
+        concat!(
+            "SELECT arrival, id, sender, subject, body, created_at, parent FROM messages ",
+            $tail
+        )
+    };
+}
+
+const RESOLVE_SQL: &str = select_message!("WHERE substr(id, 1, length(?1)) = ?1 ORDER BY arrival");
+
+const LIST_SQL: &str = select_message!(
+    "WHERE (?1 IS NULL OR sender = ?1)
+       AND (?2 IS NULL OR EXISTS (
+            SELECT 1 FROM receivers
+            WHERE receivers.arrival = messages.arrival AND receivers.name = ?2))
+       AND (?3 IS NULL OR arrival > ?3)
+       AND (?4 IS NULL OR arrival < ?4)
+     ORDER BY arrival"
+);
+
+const REACH_UP_SQL: &str = concat!(
+    "WITH RECURSIVE reached(id) AS (SELECT ?1 UNION ",
+    "SELECT messages.parent FROM messages ",
+    "JOIN reached ON messages.id = reached.id ",
+    "WHERE messages.parent IS NOT NULL) ",
+    "SELECT id FROM reached"
+);
+
+const REACH_DOWN_SQL: &str = concat!(
+    "WITH RECURSIVE reached(id) AS (SELECT ?1 UNION ",
+    "SELECT messages.id FROM messages ",
+    "JOIN reached ON messages.parent = reached.id) ",
+    "SELECT id FROM reached"
+);
 
 /// A row of `messages` as stored, before its Receivers are attached.
 struct StoredMessage {
