@@ -76,6 +76,11 @@ The Inbox is a SQLite database in the folder `SNAILBOX_HOME` names when it is se
 variable counts as unset. `create` or `show` creates a missing folder, readable and
 writable by its owner only; a folder that already exists keeps its permissions.
 
+Several processes can run `create` against one Inbox at once: SQLite lets one write at a
+time, and the others wait for it, up to 30 seconds each, before failing with "database is
+locked". Every Message they store gets its own place in arrival order, so paging with
+`--after` sees each one exactly once.
+
 ## Development
 
 `cargo build` builds the `snailbox` binary; `snailbox --help` lists its commands.

@@ -2,15 +2,21 @@
 
 use std::num::NonZeroUsize;
 use std::path::Path;
+use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, SecondsFormat, Utc};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, TransactionBehavior};
 
 use crate::location;
 use crate::message::{IdPrefix, Message, MessageId, NewMessage};
 
 const DATABASE_FILE: &str = "inbox.sqlite3";
+
+// Several agents may write to one Inbox at once, each in its own process; SQLite lets one
+// write at a time, so the others wait up to this long for the lock rather than fail. Set here
+// rather than left to rusqlite's default so the guarantee does not move with the dependency.
+const WRITER_WAIT: Duration = Duration::from_secs(30);
 
 // `arrival` is the Inbox's own order (ADR 0001), assigned by the insert itself.
 // AUTOINCREMENT keeps it from ever reusing a number, so a Message stored later always sorts
@@ -59,6 +65,9 @@ impl Inbox {
         let connection = Connection::open(&path)
             .with_context(|| format!("cannot open the Inbox at {}", path.display()))?;
         connection
+            .busy_timeout(WRITER_WAIT)
+            .context("cannot set up the Inbox")?;
+        connection
             .execute_batch(SCHEMA)
             .context("cannot set up the Inbox")?;
         Ok(Self { connection })
@@ -74,9 +83,11 @@ impl Inbox {
             .map(|parent| parent.to_string());
         let id = MessageId::random();
         let created_at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
+        // Immediate takes the write lock at BEGIN, where a busy writer waits out WRITER_WAIT; a
+        // deferred transaction that reads before it writes can instead fail at once.
         let transaction = self
             .connection
-            .transaction()
+            .transaction_with_behavior(TransactionBehavior::Immediate)
             .context("cannot store the Message")?;
         transaction
             .execute(
