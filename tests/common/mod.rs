@@ -117,11 +117,16 @@ pub fn create_with(mut command: Command, args: &[&str]) -> String {
         .args(args)
         .output()
         .expect("the snailbox binary runs");
+    id_from(&output)
+}
+
+/// The id a `create` printed, failing the test if that `create` failed.
+pub fn id_from(output: &Output) -> String {
     assert!(
         output.status.success(),
         "create failed with {}: {}",
         output.status,
-        stderr(&output)
+        stderr(output)
     );
-    stdout(&output).trim_end_matches('\n').to_owned()
+    stdout(output).trim_end_matches('\n').to_owned()
 }

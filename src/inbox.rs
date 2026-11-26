@@ -83,8 +83,8 @@ impl Inbox {
             .map(|parent| parent.to_string());
         let id = MessageId::random();
         let created_at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
-        // Immediate takes the write lock at BEGIN, where a busy writer waits out WRITER_WAIT; a
-        // deferred transaction that reads before it writes can instead fail at once.
+        // Immediate makes the lock point explicit: the write lock is taken at BEGIN, where a
+        // busy writer waits out WRITER_WAIT.
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)

@@ -7,7 +7,7 @@ mod common;
 use std::collections::HashSet;
 use std::process::Child;
 
-use common::{command_in, snailbox, stderr, stdout, store, TempFolder};
+use common::{command_in, id_from, snailbox, stderr, stdout, store, TempFolder};
 use serde_json::Value;
 
 const WRITERS: usize = 32;
@@ -30,16 +30,7 @@ fn create_at_once(home: &TempFolder) -> (HashSet<String>, Vec<String>) {
         .collect();
     let ids = children
         .into_iter()
-        .map(|child| {
-            let output = child.wait_with_output().expect("the snailbox binary runs");
-            assert!(
-                output.status.success(),
-                "a concurrent create failed with {}: {}",
-                output.status,
-                stderr(&output)
-            );
-            stdout(&output).trim_end_matches('\n').to_owned()
-        })
+        .map(|child| id_from(&child.wait_with_output().expect("the snailbox binary runs")))
         .collect();
     (subjects.into_iter().collect(), ids)
 }
@@ -86,7 +77,7 @@ fn concurrent_creates_all_succeed_and_each_message_is_kept() {
     // The Inbox exists before the writers race, so they contend on writes, not on setup.
     store(&home, "alice", &["bob"], "start");
 
-    let (subjects, ids) = create_at_once(&home);
+    let (_, ids) = create_at_once(&home);
 
     for id in &ids {
         let output = snailbox(home.path(), &["show", "--json", id]);
@@ -97,16 +88,15 @@ fn concurrent_creates_all_succeed_and_each_message_is_kept() {
         );
     }
     let distinct: HashSet<&String> = ids.iter().collect();
-    assert_eq!(distinct.len(), subjects.len(), "ids printed: {ids:?}");
+    assert_eq!(distinct.len(), WRITERS, "ids printed: {ids:?}");
 }
 
 #[test]
 fn concurrent_creates_on_a_new_inbox_all_succeed() {
     let home = TempFolder::new("concurrent-new");
 
-    let (_, ids) = create_at_once(&home);
-
-    assert_eq!(ids.len(), WRITERS);
+    // create_at_once fails the test if any writer exits non-zero.
+    create_at_once(&home);
 }
 
 #[test]
