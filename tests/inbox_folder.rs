@@ -1,13 +1,14 @@
-//! Which folder holds the Inbox, and that any command creates it on first use for its owner
-//! only. A Message created under one setting is shown again with `SNAILBOX_HOME` pointing at
-//! the folder that setting should have chosen, so the tests never open the database file.
+//! Which folder holds the Inbox, and that `create` and `show` each create it on first use for
+//! its owner only. A Message created under one setting is shown again with `SNAILBOX_HOME`
+//! pointing at the folder that setting should have chosen, so the tests never open the
+//! database file.
 
 mod common;
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
-use common::{bare_command, create, snailbox, stderr, TempHome};
+use common::{bare_command, create, create_with, snailbox, stderr, stdout, TempFolder};
 
 const NEW_MESSAGE: [&str; 6] = ["--from", "alice", "--to", "bob", "--subject", "hello"];
 
@@ -16,17 +17,7 @@ fn create_with_env(env: &[(&str, &Path)]) -> String {
     for (name, value) in env {
         command.env(name, value);
     }
-    let output = command
-        .arg("create")
-        .args(NEW_MESSAGE)
-        .output()
-        .expect("the snailbox binary runs");
-    assert!(
-        output.status.success(),
-        "create failed: {}",
-        stderr(&output)
-    );
-    common::stdout(&output).trim_end().to_owned()
+    create_with(command, &NEW_MESSAGE)
 }
 
 fn assert_shown_from(folder: &Path, id: &str) {
@@ -41,7 +32,7 @@ fn assert_shown_from(folder: &Path, id: &str) {
 
 #[test]
 fn snailbox_home_wins_over_xdg_data_home_and_home() {
-    let scratch = TempHome::new("folder-snailbox-home");
+    let scratch = TempFolder::new("folder-snailbox-home");
     let chosen = scratch.path().join("chosen");
 
     let id = create_with_env(&[
@@ -55,7 +46,7 @@ fn snailbox_home_wins_over_xdg_data_home_and_home() {
 
 #[test]
 fn xdg_data_home_is_used_when_snailbox_home_is_unset() {
-    let scratch = TempHome::new("folder-xdg");
+    let scratch = TempFolder::new("folder-xdg");
     let xdg = scratch.path().join("xdg");
 
     let id = create_with_env(&[
@@ -67,8 +58,22 @@ fn xdg_data_home_is_used_when_snailbox_home_is_unset() {
 }
 
 #[test]
+fn an_empty_snailbox_home_counts_as_unset() {
+    let scratch = TempFolder::new("folder-empty-snailbox-home");
+    let xdg = scratch.path().join("xdg");
+
+    let id = create_with_env(&[
+        ("SNAILBOX_HOME", Path::new("")),
+        ("XDG_DATA_HOME", &xdg),
+        ("HOME", &scratch.path().join("home")),
+    ]);
+
+    assert_shown_from(&xdg.join("snailbox"), &id);
+}
+
+#[test]
 fn local_share_under_home_is_used_when_neither_variable_is_set() {
-    let scratch = TempHome::new("folder-home");
+    let scratch = TempFolder::new("folder-home");
     let home = scratch.path().join("home");
 
     let id = create_with_env(&[("HOME", &home)]);
@@ -77,8 +82,18 @@ fn local_share_under_home_is_used_when_neither_variable_is_set() {
 }
 
 #[test]
+fn an_empty_xdg_data_home_counts_as_unset() {
+    let scratch = TempFolder::new("folder-empty-xdg");
+    let home = scratch.path().join("home");
+
+    let id = create_with_env(&[("XDG_DATA_HOME", Path::new("")), ("HOME", &home)]);
+
+    assert_shown_from(&home.join(".local/share/snailbox"), &id);
+}
+
+#[test]
 fn create_makes_the_folder_for_its_owner_only() {
-    let scratch = TempHome::new("folder-create-mode");
+    let scratch = TempFolder::new("folder-create-mode");
     let folder = scratch.path().join("new");
 
     create(&folder, &NEW_MESSAGE);
@@ -92,11 +107,18 @@ fn create_makes_the_folder_for_its_owner_only() {
 
 #[test]
 fn show_makes_the_folder_for_its_owner_only() {
-    let scratch = TempHome::new("folder-show-mode");
+    let scratch = TempFolder::new("folder-show-mode");
     let folder = scratch.path().join("new");
+    let unknown = "00000000-0000-4000-8000-000000000000";
 
-    snailbox(&folder, &["show", "00000000-0000-4000-8000-000000000000"]);
+    let output = snailbox(&folder, &["show", unknown]);
 
+    assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
+    assert_eq!(
+        stderr(&output),
+        format!("snailbox: no Message has the id {unknown}\n"),
+        "show did not reach the new Inbox"
+    );
     let mode = std::fs::metadata(&folder)
         .expect("show made the Inbox folder")
         .permissions()

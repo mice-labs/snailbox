@@ -30,8 +30,10 @@ enum Command {
         /// A Receiver's name; repeat for each Receiver
         #[arg(long, required = true)]
         to: Vec<String>,
+        /// The Message's subject
         #[arg(long)]
         subject: String,
+        /// The Message's body; without it the Message has none
         #[arg(long)]
         body: Option<String>,
     },

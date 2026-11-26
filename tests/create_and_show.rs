@@ -4,10 +4,11 @@
 
 mod common;
 
+use std::os::unix::fs::PermissionsExt;
 use std::process::Output;
 
 use chrono::{DateTime, FixedOffset, Timelike, Utc};
-use common::{create, snailbox, stderr, stdout, TempHome};
+use common::{create, snailbox, stderr, stdout, TempFolder};
 use serde_json::Value;
 
 /// True when `id` is a lowercase hyphenated UUID of version 4 and the RFC 4122 variant.
@@ -24,7 +25,7 @@ fn is_uuid_v4(id: &str) -> bool {
 
 #[test]
 fn create_prints_only_a_random_uuid_v4_id() {
-    let home = TempHome::new("create-id");
+    let home = TempFolder::new("create-id");
     let args = [
         "create",
         "--from",
@@ -51,9 +52,8 @@ fn create_prints_only_a_random_uuid_v4_id() {
 
 /// Runs `show` with the time zone fixed nine hours east of UTC, so the local time in the text
 /// form is known. POSIX reverses the sign in `Etc/GMT-9`.
-fn show_in_utc_plus_nine(home: &TempHome, args: &[&str]) -> Output {
-    common::bare_command()
-        .env("SNAILBOX_HOME", home.path())
+fn show_in_utc_plus_nine(home: &TempFolder, args: &[&str]) -> Output {
+    common::command_in(home.path())
         .env("TZ", "Etc/GMT-9")
         .arg("show")
         .args(args)
@@ -61,7 +61,7 @@ fn show_in_utc_plus_nine(home: &TempHome, args: &[&str]) -> Output {
         .expect("the snailbox binary runs")
 }
 
-fn created_message(home: &TempHome) -> (String, DateTime<Utc>, DateTime<Utc>) {
+fn created_message(home: &TempFolder) -> (String, DateTime<Utc>, DateTime<Utc>) {
     let before = Utc::now()
         .with_nanosecond(0)
         .expect("zero is a valid nanosecond");
@@ -85,7 +85,7 @@ fn created_message(home: &TempHome) -> (String, DateTime<Utc>, DateTime<Utc>) {
 
 #[test]
 fn show_json_prints_every_field_with_the_creation_time_in_utc() {
-    let home = TempHome::new("show-json");
+    let home = TempFolder::new("show-json");
     let (id, before, after) = created_message(&home);
 
     let output = show_in_utc_plus_nine(&home, &[&id, "--json"]);
@@ -111,7 +111,7 @@ fn show_json_prints_every_field_with_the_creation_time_in_utc() {
 
 #[test]
 fn show_text_prints_every_field_with_the_creation_time_in_local_time() {
-    let home = TempHome::new("show-text");
+    let home = TempFolder::new("show-text");
     let (id, _, _) = created_message(&home);
     let json = show_in_utc_plus_nine(&home, &[&id, "--json"]);
     let json: Value = serde_json::from_str(&stdout(&json)).expect("show --json prints JSON");
@@ -140,8 +140,65 @@ fn show_text_prints_every_field_with_the_creation_time_in_local_time() {
 }
 
 #[test]
+fn a_message_without_a_body_shows_null_in_json_and_no_body_in_text() {
+    let home = TempFolder::new("show-no-body");
+    let id = create(
+        home.path(),
+        &["--from", "alice", "--to", "bob", "--subject", "ping"],
+    );
+
+    let json = show_in_utc_plus_nine(&home, &[&id, "--json"]);
+    let text = show_in_utc_plus_nine(&home, &[&id]);
+
+    assert!(
+        json.status.success(),
+        "show --json failed: {}",
+        stderr(&json)
+    );
+    let shown: Value = serde_json::from_str(&stdout(&json)).expect("show --json prints JSON");
+    assert!(
+        shown.get("body").is_some_and(Value::is_null),
+        "body was not null: {shown}"
+    );
+    assert!(text.status.success(), "show failed: {}", stderr(&text));
+    let text = stdout(&text);
+    let last_header = text.lines().last().expect("show printed at least one line");
+    assert!(
+        last_header.starts_with("Created:  ") && text.ends_with('\n') && !text.ends_with("\n\n"),
+        "text did not end at the Created line: {text:?}"
+    );
+}
+
+#[test]
+fn create_that_cannot_write_says_it_cannot_store_the_message() {
+    let home = TempFolder::new("create-read-only");
+    let args = ["--from", "alice", "--to", "bob", "--subject", "hello"];
+    create(home.path(), &args);
+    let set_mode = |mode| {
+        std::fs::set_permissions(home.path(), std::fs::Permissions::from_mode(mode))
+            .expect("the test owns the Inbox folder");
+    };
+    // A folder the owner cannot write leaves SQLite no room for its journal, so the insert fails.
+    set_mode(0o500);
+
+    let output = snailbox(home.path(), &[&["create"], &args[..]].concat());
+
+    set_mode(0o700);
+    assert!(
+        !output.status.success(),
+        "create into a read-only Inbox succeeded"
+    );
+    assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
+    assert!(
+        stderr(&output).starts_with("snailbox: cannot store the Message: "),
+        "stderr was {}",
+        stderr(&output)
+    );
+}
+
+#[test]
 fn show_with_an_unknown_id_fails_on_stderr() {
-    let home = TempHome::new("show-unknown");
+    let home = TempFolder::new("show-unknown");
     create(
         home.path(),
         &["--from", "alice", "--to", "bob", "--subject", "hello"],

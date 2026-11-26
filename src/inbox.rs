@@ -52,24 +52,31 @@ impl Inbox {
     pub fn create(&mut self, new: &NewMessage) -> Result<MessageId> {
         let id = MessageId::random();
         let created_at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
-        let transaction = self.connection.transaction()?;
-        transaction.execute(
-            "INSERT INTO messages (id, sender, subject, body, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                id.to_string(),
-                new.sender,
-                new.subject,
-                new.body,
-                created_at
-            ],
-        )?;
+        let transaction = self
+            .connection
+            .transaction()
+            .context("cannot store the Message")?;
+        transaction
+            .execute(
+                "INSERT INTO messages (id, sender, subject, body, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    id.to_string(),
+                    new.sender,
+                    new.subject,
+                    new.body,
+                    created_at
+                ],
+            )
+            .context("cannot store the Message")?;
         let arrival = transaction.last_insert_rowid();
         for (position, name) in new.receivers.iter().enumerate() {
-            transaction.execute(
-                "INSERT INTO receivers (arrival, position, name) VALUES (?1, ?2, ?3)",
-                params![arrival, position, name],
-            )?;
+            transaction
+                .execute(
+                    "INSERT INTO receivers (arrival, position, name) VALUES (?1, ?2, ?3)",
+                    params![arrival, position, name],
+                )
+                .with_context(|| format!("cannot store the Message's Receiver {name}"))?;
         }
         transaction.commit().context("cannot store the Message")?;
         Ok(id)
