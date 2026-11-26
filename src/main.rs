@@ -1,4 +1,14 @@
+mod inbox;
+mod location;
+mod message;
+
+use std::process::ExitCode;
+
+use anyhow::Result;
 use clap::{Parser, Subcommand};
+
+use inbox::Inbox;
+use message::NewMessage;
 
 #[derive(Parser)]
 #[command(
@@ -13,19 +23,67 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Store a Message and print its id
-    Create,
+    Create {
+        /// The Sender's name
+        #[arg(long)]
+        from: String,
+        /// A Receiver's name; repeat for each Receiver
+        #[arg(long, required = true)]
+        to: Vec<String>,
+        #[arg(long)]
+        subject: String,
+        #[arg(long)]
+        body: Option<String>,
+    },
     /// List Messages in arrival order
     List,
     /// Print one Message in full
-    Show,
+    Show {
+        /// The Message's full id
+        id: String,
+        /// Print the Message as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
-fn main() {
-    let cli = Cli::parse();
-    match cli.command {
-        Command::Create | Command::List | Command::Show => {
-            eprintln!("snailbox: not implemented yet");
-            std::process::exit(1);
+fn main() -> ExitCode {
+    match run(Cli::parse().command) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("snailbox: {error:#}");
+            ExitCode::FAILURE
         }
     }
+}
+
+fn run(command: Command) -> Result<()> {
+    match command {
+        Command::Create {
+            from,
+            to,
+            subject,
+            body,
+        } => {
+            let mut inbox = Inbox::open(&location::inbox_folder()?)?;
+            let id = inbox.create(&NewMessage {
+                sender: from,
+                receivers: to,
+                subject,
+                body,
+            })?;
+            println!("{id}");
+        }
+        Command::List => anyhow::bail!("not implemented yet"),
+        Command::Show { id, json } => {
+            let inbox = Inbox::open(&location::inbox_folder()?)?;
+            let message = inbox.show(&id)?;
+            if json {
+                println!("{}", message.to_json());
+            } else {
+                print!("{}", message.to_text());
+            }
+        }
+    }
+    Ok(())
 }
