@@ -7,8 +7,8 @@ use std::process::ExitCode;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-use inbox::Inbox;
-use message::NewMessage;
+use inbox::{Inbox, ListFilter};
+use message::{Message, NewMessage};
 
 #[derive(Parser)]
 #[command(
@@ -38,7 +38,20 @@ enum Command {
         body: Option<String>,
     },
     /// List Messages in arrival order
-    List,
+    ///
+    /// Messages always come in arrival order, oldest first: the order this Inbox stored them
+    /// in, never the order of their creation times. There is no sort flag.
+    List {
+        /// Only Messages with this name among their Receivers
+        #[arg(long)]
+        to: Option<String>,
+        /// Only Messages from this Sender
+        #[arg(long)]
+        from: Option<String>,
+        /// Print the Messages as a JSON array
+        #[arg(long)]
+        json: bool,
+    },
     /// Print one Message in full
     Show {
         /// The Message's full id
@@ -76,7 +89,18 @@ fn run(command: Command) -> Result<()> {
             })?;
             println!("{id}");
         }
-        Command::List => anyhow::bail!("not implemented yet"),
+        Command::List { to, from, json } => {
+            let inbox = Inbox::open(&location::inbox_folder()?)?;
+            let messages = inbox.list(&ListFilter { to, from })?;
+            if json {
+                let messages: Vec<_> = messages.iter().map(Message::to_json_value).collect();
+                println!("{}", serde_json::Value::Array(messages));
+            } else {
+                for message in &messages {
+                    println!("{}", message.to_list_line());
+                }
+            }
+        }
         Command::Show { id, json } => {
             let inbox = Inbox::open(&location::inbox_folder()?)?;
             let message = inbox.show(&id)?;

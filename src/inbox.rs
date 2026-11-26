@@ -87,41 +87,86 @@ impl Inbox {
         let row = self
             .connection
             .query_row(
-                "SELECT arrival, id, sender, subject, body, created_at
-                 FROM messages WHERE id = ?1",
+                &format!("{SELECT_MESSAGE} WHERE id = ?1"),
                 [id],
-                |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, Option<String>>(4)?,
-                        row.get::<_, String>(5)?,
-                    ))
-                },
+                StoredMessage::from_row,
             )
             .optional()?;
-        let Some((arrival, stored_id, sender, subject, body, created_at)) = row else {
+        let Some(row) = row else {
             bail!("no Message has the id {id}");
         };
+        self.message(row)
+    }
+
+    /// The Messages matching `filter`, in the order this Inbox stored them, oldest first
+    /// (ADR 0001); creation time plays no part in the order.
+    pub fn list(&self, filter: &ListFilter) -> Result<Vec<Message>> {
+        let mut statement = self.connection.prepare(&format!(
+            "{SELECT_MESSAGE}
+             WHERE (?1 IS NULL OR sender = ?1)
+               AND (?2 IS NULL OR EXISTS (
+                    SELECT 1 FROM receivers
+                    WHERE receivers.arrival = messages.arrival AND receivers.name = ?2))
+             ORDER BY arrival"
+        ))?;
+        let rows = statement
+            .query_map(params![filter.from, filter.to], StoredMessage::from_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter().map(|row| self.message(row)).collect()
+    }
+
+    fn message(&self, row: StoredMessage) -> Result<Message> {
         let mut statement = self
             .connection
             .prepare("SELECT name FROM receivers WHERE arrival = ?1 ORDER BY position")?;
         let receivers = statement
-            .query_map([arrival], |row| row.get::<_, String>(0))?
+            .query_map([row.arrival], |row| row.get::<_, String>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(Message {
-            id: stored_id
+            id: row
+                .id
                 .parse()
-                .with_context(|| format!("the Inbox holds a malformed id {stored_id}"))?,
-            sender,
+                .with_context(|| format!("the Inbox holds a malformed id {}", row.id))?,
+            sender: row.sender,
             receivers,
-            subject,
-            body,
-            created_at: DateTime::parse_from_rfc3339(&created_at)
-                .with_context(|| format!("the Inbox holds a malformed time {created_at}"))?
+            subject: row.subject,
+            body: row.body,
+            created_at: DateTime::parse_from_rfc3339(&row.created_at)
+                .with_context(|| format!("the Inbox holds a malformed time {}", row.created_at))?
                 .with_timezone(&Utc),
+        })
+    }
+}
+
+/// Which Messages `list` returns; a field left `None` does not narrow the result.
+pub struct ListFilter {
+    /// Matches a Message that has this name among its Receivers.
+    pub to: Option<String>,
+    /// Matches a Message whose Sender is this name.
+    pub from: Option<String>,
+}
+
+const SELECT_MESSAGE: &str = "SELECT arrival, id, sender, subject, body, created_at FROM messages";
+
+/// A row of `messages` as stored, before its Receivers are attached.
+struct StoredMessage {
+    arrival: i64,
+    id: String,
+    sender: String,
+    subject: String,
+    body: Option<String>,
+    created_at: String,
+}
+
+impl StoredMessage {
+    fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            arrival: row.get(0)?,
+            id: row.get(1)?,
+            sender: row.get(2)?,
+            subject: row.get(3)?,
+            body: row.get(4)?,
+            created_at: row.get(5)?,
         })
     }
 }

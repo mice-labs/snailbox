@@ -49,10 +49,7 @@ impl Message {
     /// Header lines, then a blank line and the body when there is one. The creation time is
     /// in the local time zone, which chrono reads from `TZ` or else the system setting.
     pub fn to_text(&self) -> String {
-        let created = self
-            .created_at
-            .with_timezone(&Local)
-            .format("%Y-%m-%d %H:%M:%S %:z");
+        let created = self.local_time();
         let mut text = format!(
             "Id:       {}\nFrom:     {}\nTo:       {}\nSubject:  {}\nCreated:  {created}\n",
             self.id,
@@ -68,8 +65,33 @@ impl Message {
         text
     }
 
+    /// One line for `list`: the first eight characters of the id, the creation time, the
+    /// Sender, the Receivers joined by commas and the subject, separated by tabs.
+    pub fn to_list_line(&self) -> String {
+        let id = self.id.to_string();
+        format!(
+            "{}\t{}\t{}\t{}\t{}",
+            &id[..8],
+            self.local_time(),
+            self.sender,
+            self.receivers.join(","),
+            self.subject
+        )
+    }
+
+    fn local_time(&self) -> impl fmt::Display {
+        self.created_at
+            .with_timezone(&Local)
+            .format("%Y-%m-%d %H:%M:%S %:z")
+    }
+
     /// One JSON object; `created_at` is RFC 3339 in UTC and `body` is null when absent.
     pub fn to_json(&self) -> String {
+        self.to_json_value().to_string()
+    }
+
+    /// The object `to_json` prints, for embedding in a larger document.
+    pub fn to_json_value(&self) -> serde_json::Value {
         serde_json::json!({
             "id": self.id.to_string(),
             "from": self.sender,
@@ -78,6 +100,5 @@ impl Message {
             "created_at": self.created_at.to_rfc3339_opts(SecondsFormat::Secs, true),
             "body": self.body,
         })
-        .to_string()
     }
 }
