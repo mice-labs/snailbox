@@ -3,6 +3,7 @@ mod inbox;
 mod location;
 mod message;
 
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -10,8 +11,8 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use body::BodySource;
-use inbox::{Inbox, LeftOut, ListFilter};
-use message::{IdPrefix, Message, NewMessage};
+use inbox::{Inbox, LeftOut, ListFilter, NoMessage};
+use message::{IdPrefix, Message, MessageId, NewMessage};
 
 #[derive(Parser)]
 #[command(
@@ -62,14 +63,14 @@ enum Command {
         from: Option<String>,
         /// Only Messages stored after this one, named by its Message id or a unique prefix of it
         /// (not a date or time)
-        #[arg(long, value_name = "ID", value_parser = cursor_after)]
+        #[arg(long, value_name = "ID")]
         after: Option<IdPrefix>,
         /// Only Messages stored before this one, named by its Message id or a unique prefix of it
         /// (not a date or time)
-        #[arg(long, value_name = "ID", value_parser = cursor_before)]
+        #[arg(long, value_name = "ID")]
         before: Option<IdPrefix>,
         /// Return at most this many Messages, 0 for no limit: the first n after --after, else
-        /// the last n before --before, else the most recent n
+        /// the last n before --before (alone), else the most recent n
         #[arg(long, value_name = "N", default_value_t = 50)]
         limit: usize,
         /// Print the Messages as a JSON array; when the limit left Messages out, an object
@@ -97,46 +98,55 @@ fn name(text: &str) -> Result<String, String> {
     Ok(text.to_owned())
 }
 
-fn cursor_after(text: &str) -> Result<IdPrefix, String> {
-    cursor("--after", text)
+/// Adds to a no-match error from a cursor the hint that the flag takes a Message id. Any
+/// cursor value matching no stored id, a date or time of any format included, reaches this
+/// error, since ids are random UUIDs (ADR 0001); the flag is the one whose prefix failed, `--after`
+/// when both were given the same value.
+fn hint_cursor_error(
+    error: anyhow::Error,
+    after: Option<&IdPrefix>,
+    before: Option<&IdPrefix>,
+) -> anyhow::Error {
+    let Some(no_message) = error.downcast_ref::<NoMessage>() else {
+        return error;
+    };
+    let flag = if after.map(IdPrefix::as_str) == Some(no_message.prefix.as_str()) {
+        "--after"
+    } else {
+        debug_assert_eq!(
+            before.map(IdPrefix::as_str),
+            Some(no_message.prefix.as_str())
+        );
+        "--before"
+    };
+    anyhow::anyhow!(
+        "{no_message}; {flag} takes a Message id (or a unique prefix of one), not a date or time"
+    )
 }
 
-fn cursor_before(text: &str) -> Result<IdPrefix, String> {
-    cursor("--before", text)
-}
-
-/// The Message id prefix a cursor flag was given; a value that cannot start a UUID (hex digits
-/// with a hyphen after the 8th, 13th, 18th and 23rd) is refused with a hint, which catches every
-/// date or time format, not only ISO ones (ADR 0001).
-fn cursor(flag: &str, text: &str) -> Result<IdPrefix, String> {
-    let can_start_a_uuid = text.len() <= 36
-        && text.bytes().enumerate().all(|(position, byte)| {
-            if matches!(position, 8 | 13 | 18 | 23) {
-                byte == b'-'
-            } else {
-                byte.is_ascii_hexdigit()
-            }
-        });
-    if !can_start_a_uuid {
-        return Err(format!(
-            "{flag} takes a Message id (or a unique prefix of one), not a date or time"
-        ));
+/// The cursor flag that reads the Messages a limit left out, with the direction they lie in
+/// and the id the flag takes: `--before` for older ones, `--after` for newer ones.
+fn left_out_cursor(left_out: &LeftOut) -> (&'static str, &'static str, &MessageId) {
+    match left_out {
+        LeftOut::Older { before, .. } => ("older", "--before", before),
+        LeftOut::Newer { after, .. } => ("newer", "--after", after),
     }
-    text.parse()
+}
+
+/// The flag and id that read the Messages a limit left out.
+fn next_flag(left_out: &LeftOut) -> String {
+    let (_, flag, id) = left_out_cursor(left_out);
+    format!("{flag} {id}")
 }
 
 /// The line text output ends with when a limit left Messages out.
 fn left_out_notice(left_out: &LeftOut) -> String {
-    let direction = match left_out {
-        LeftOut::Older { .. } => "older",
-        LeftOut::Newer { .. } => "newer",
-    };
+    let (direction, cursor, _) = left_out_cursor(left_out);
     let count = left_out.count();
     let noun = if count == 1 { "Message" } else { "Messages" };
-    let cursor = left_out.cursor_flag();
     format!(
         "{count} {direction} {noun} left out by the limit; read them with the same flags but {} in place of any {cursor} (or --limit 0 for no limit)",
-        left_out.next_flag()
+        next_flag(left_out)
     )
 }
 
@@ -183,12 +193,15 @@ fn run(command: Command) -> Result<()> {
             json,
         } => {
             let inbox = Inbox::open(&location::inbox_folder()?)?;
-            let listing = inbox.list(&ListFilter {
+            let filter = ListFilter {
                 to,
                 from,
                 after,
                 before,
-                limit: (limit > 0).then_some(limit),
+                limit: NonZeroUsize::new(limit),
+            };
+            let listing = inbox.list(&filter).map_err(|error| {
+                hint_cursor_error(error, filter.after.as_ref(), filter.before.as_ref())
             })?;
             if json {
                 let messages: Vec<_> = listing
@@ -204,7 +217,7 @@ fn run(command: Command) -> Result<()> {
                         serde_json::json!({
                             "messages": messages,
                             "left_out": left_out.count(),
-                            "next": left_out.next_flag(),
+                            "next": next_flag(left_out),
                         })
                     ),
                 }

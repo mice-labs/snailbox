@@ -37,7 +37,7 @@ impl std::str::FromStr for MessageId {
 
 /// The start of a Message's id as a person types it: a whole id or any non-empty prefix of
 /// one. Ids are stored in lowercase, so it is lowercased and matches whatever the case typed.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IdPrefix(String);
 
 impl IdPrefix {

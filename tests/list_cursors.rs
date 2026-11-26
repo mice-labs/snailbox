@@ -114,6 +114,10 @@ fn a_date_or_time_cursor_is_an_error_saying_the_flag_takes_a_message_id() {
             "26.11.2026",
             "2026-1-5",
             "1764150000",
+            "20261126",
+            "2026",
+            "202611",
+            "00000000-0000-0000-0000-000000000000a",
         ] {
             let error = failed_list(&home, &[flag, value]);
             assert!(
@@ -321,6 +325,21 @@ fn json_with_after_names_the_after_flag_as_next() {
     assert_eq!(value["left_out"], 3);
     assert_eq!(value["next"], format!("--after {}", ids[2]));
     assert_eq!(value["messages"][0]["subject"], "m2");
+}
+
+#[test]
+fn json_with_before_alone_names_the_before_flag_as_next() {
+    let (home, ids) = home_with(6, "json-before");
+
+    let output = snailbox(
+        home.path(),
+        &["list", "--before", &ids[5], "--limit", "2", "--json"],
+    );
+
+    let value: Value = serde_json::from_str(&stdout(&output)).expect("stdout is JSON");
+    assert_eq!(value["left_out"], 3);
+    assert_eq!(value["next"], format!("--before {}", ids[3]));
+    assert_eq!(value["messages"][0]["subject"], "m4");
 }
 
 #[test]

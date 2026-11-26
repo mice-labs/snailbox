@@ -1,5 +1,6 @@
 //! The Inbox: the SQLite store of Messages, and the operations snailbox offers on it.
 
+use std::num::NonZeroUsize;
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
@@ -35,6 +36,20 @@ const SCHEMA: &str = "
 pub struct Inbox {
     connection: Connection,
 }
+
+/// No Message has an id starting with `prefix`; a caller downcasts to it to add a hint.
+#[derive(Debug)]
+pub struct NoMessage {
+    pub prefix: IdPrefix,
+}
+
+impl std::fmt::Display for NoMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "no Message has an id starting with {}", self.prefix)
+    }
+}
+
+impl std::error::Error for NoMessage {}
 
 impl Inbox {
     /// Opens the Inbox in `folder`, creating the folder and database on first use.
@@ -100,7 +115,10 @@ impl Inbox {
             .query_map([prefix.as_str()], |row| row.get::<_, String>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         match matches.len() {
-            0 => bail!("no Message has an id starting with {prefix}"),
+            0 => Err(NoMessage {
+                prefix: prefix.clone(),
+            }
+            .into()),
             1 => {
                 let stored = matches.remove(0);
                 stored
@@ -159,7 +177,7 @@ impl Inbox {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         let excess = filter
             .limit
-            .map_or(0, |limit| rows.len().saturating_sub(limit));
+            .map_or(0, |limit| rows.len().saturating_sub(limit.get()));
         let keeps_oldest = after.is_some();
         if keeps_oldest {
             rows.truncate(rows.len() - excess);
@@ -170,7 +188,7 @@ impl Inbox {
             .into_iter()
             .map(|row| self.with_receivers(row))
             .collect::<Result<Vec<_>>>()?;
-        // A limit that left Messages out was at least 1, so it kept at least one.
+        // A non-zero limit that left Messages out kept at least one.
         let left_out = match (excess, keeps_oldest) {
             (0, _) => None,
             (count, true) => Some(LeftOut::Newer {
@@ -238,7 +256,7 @@ pub struct ListFilter {
     /// Matches only Messages this Inbox stored before the Message with this id or prefix.
     pub before: Option<IdPrefix>,
     /// The most Messages to return; `None` returns every match.
-    pub limit: Option<usize>,
+    pub limit: Option<NonZeroUsize>,
 }
 
 /// What `list` found: the Messages returned, oldest first, and what the limit cut.
@@ -260,22 +278,6 @@ impl LeftOut {
     pub fn count(&self) -> usize {
         match self {
             Self::Older { count, .. } | Self::Newer { count, .. } => *count,
-        }
-    }
-
-    /// The `list` flag and id that read the Messages left out.
-    pub fn next_flag(&self) -> String {
-        match self {
-            Self::Older { before, .. } => format!("--before {before}"),
-            Self::Newer { after, .. } => format!("--after {after}"),
-        }
-    }
-
-    /// The cursor flag `next_flag` replaces: `--before` or `--after`.
-    pub fn cursor_flag(&self) -> &'static str {
-        match self {
-            Self::Older { .. } => "--before",
-            Self::Newer { .. } => "--after",
         }
     }
 }

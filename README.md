@@ -39,10 +39,11 @@ prefix is empty or no Message matches, or, listing the matches, when several do.
 daemon: `create`, `show` and `list` each open the Inbox directly.
 
 `list` always returns Messages in arrival order, oldest first: the order this Inbox stored
-them, which creation times never decide (ADR 0001). There is no sort flag. Each text line is
-tab-separated: the first eight characters of the id, the creation time in local time, the
-Sender, the Receivers joined by commas and the subject; a tab or line break inside one of
-them prints as a space. `--json` prints an array of the
+them, which creation times never decide (ADR 0001). There is no sort flag. Each Message's
+text line is tab-separated: the first eight characters of the id, the creation time in local
+time, the Sender, the Receivers joined by commas and the subject; a tab or line break inside
+one of them prints as a space. A limit that left Messages out adds one last line with no tabs
+(below). `--json` prints an array of the
 objects `show --json` prints, with full ids (an object holding that array when a limit left
 Messages out, below). `--to <name>` keeps Messages with that name among
 their Receivers, `--from <name>` keeps Messages from that Sender, and both together keep only
@@ -51,14 +52,18 @@ array with `--json`) and exit 0.
 
 `--after <id>` and `--before <id>` are cursors: they keep the Messages this Inbox stored after
 or before the named one, and together bound a range. They take a Message id or a unique
-prefix, with the same no-match and several-match errors as `show`, never a date or time: a
-value that cannot start a UUID (hex digits with a hyphen after the 8th, 13th, 18th and 23rd
-character) is refused with an error saying the flag takes a Message id. `--limit <n>` defaults to 50 and `--limit 0` removes it.
+prefix, with the same no-match and several-match errors as `show`, never a date or time: ids
+are random UUIDs, so a date or time (in any format, all-digit ones such as `20261126`
+included) matches no Message, and the no-match error then adds that the flag takes a Message
+id, not a date or time.
+
+`--limit <n>` defaults to 50 and `--limit 0` removes it.
 When more Messages match than the limit, `--after` (alone or with `--before`) returns the first
 n after that Message, and `--before` alone or no cursor returns the most recent n; either way
 they print oldest first. A limit that left Messages out ends the text output with a line
 giving how many and the flag (`--after <id>` or `--before <id>`, with a full id) that reads
-them; the flag replaces the same cursor in the command, whose other flags stay. With `--json`
+them; the flag replaces the same cursor in the command (any `--before` for the older ones,
+any `--after` for the newer ones), whose other flags stay. With `--json`
 that case prints an object instead of the array: `messages` (the array), `left_out` (the count)
 and `next` (the flag); when nothing was left out the output is the plain array, with no notice.
 So a consumer of `--json` handles both shapes: an array, or an object whose `messages` is the

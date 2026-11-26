@@ -84,14 +84,21 @@ pub fn store(home: &TempFolder, from: &str, to: &[&str], subject: &str) -> Strin
 }
 
 /// The subjects `list` printed with `args`, one per line, in the order printed. Text lines are
-/// tab-separated and the subject is the last field; a line without a tab (the notice that the
-/// limit left Messages out) is not a Message and is skipped.
+/// tab-separated and the subject is the last field; the one line without a tab that is allowed,
+/// the notice that the limit left Messages out, is skipped, and any other tab-less line fails
+/// the test.
 pub fn listed_subjects(home: &TempFolder, args: &[&str]) -> Vec<String> {
     let output = snailbox(home.path(), &[&["list"], args].concat());
     assert!(output.status.success(), "list failed: {}", stderr(&output));
     assert!(output.stderr.is_empty(), "stderr was {}", stderr(&output));
-    stdout(&output)
-        .lines()
+    let text = stdout(&output);
+    for line in text.lines().filter(|line| !line.contains('\t')) {
+        assert!(
+            line.contains("left out by the limit"),
+            "a line that is neither a Message nor the notice: {line}"
+        );
+    }
+    text.lines()
         .filter(|line| line.contains('\t'))
         .map(|line| {
             line.rsplit('\t')
