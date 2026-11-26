@@ -28,6 +28,35 @@ impl std::str::FromStr for MessageId {
     }
 }
 
+/// The start of a Message's id as a person types it: a whole id or any non-empty prefix of
+/// one. Ids are stored in lowercase, so it is lowercased and matches whatever the case typed.
+#[derive(Clone)]
+pub struct IdPrefix(String);
+
+impl IdPrefix {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for IdPrefix {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::str::FromStr for IdPrefix {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        if text.is_empty() {
+            Err("an id prefix cannot be empty".to_string())
+        } else {
+            Ok(Self(text.to_lowercase()))
+        }
+    }
+}
+
 /// What a creator supplies for a new Message; the Inbox adds the id and creation time.
 pub struct NewMessage {
     pub sender: String,
@@ -35,7 +64,7 @@ pub struct NewMessage {
     pub subject: String,
     pub body: Option<String>,
     /// The id, or a unique prefix of it, of the Message this one replies to.
-    pub reply_to: Option<String>,
+    pub reply_to: Option<IdPrefix>,
 }
 
 pub struct Message {

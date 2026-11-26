@@ -13,10 +13,10 @@ snailbox create --from bob --to alice --subject 're: lunch?' --reply-to "${id:0:
 `create` prints only the new Message's full id, a random UUID version 4. `--reply-to` stores
 the Message as a Reply to the named Message, and `show` prints a Reply's parent id (a
 `Parent:` line in text, `parent` in JSON, null when the Message is not a Reply). `show` and
-`--reply-to` take a Message's id or any prefix of it that matches exactly one Message; they
-exit non-zero with an error on standard error when no Message matches, or, listing the
-matches, when several do. There is
-no daemon: `create` and `show` each open the Inbox directly. `list` is not implemented yet.
+`--reply-to` take a Message's id or any non-empty prefix of it, in either letter case, that
+matches exactly one Message; they exit non-zero with an error on standard error when the
+prefix is empty or no Message matches, or, listing the matches, when several do. There is no
+daemon: `create` and `show` each open the Inbox directly. `list` is not implemented yet.
 
 The Inbox is a SQLite database in the folder `SNAILBOX_HOME` names when it is set, else
 `$XDG_DATA_HOME/snailbox/` when that is set, else `~/.local/share/snailbox/`. An empty

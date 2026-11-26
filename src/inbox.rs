@@ -7,7 +7,7 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use rusqlite::{params, Connection};
 
 use crate::location;
-use crate::message::{Message, MessageId, NewMessage};
+use crate::message::{IdPrefix, Message, MessageId, NewMessage};
 
 const DATABASE_FILE: &str = "inbox.sqlite3";
 
@@ -53,9 +53,10 @@ impl Inbox {
     pub fn create(&mut self, new: &NewMessage) -> Result<MessageId> {
         let parent = new
             .reply_to
-            .as_deref()
+            .as_ref()
             .map(|prefix| self.resolve(prefix))
-            .transpose()?;
+            .transpose()?
+            .map(|parent| parent.to_string());
         let id = MessageId::random();
         let created_at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
         let transaction = self
@@ -91,16 +92,21 @@ impl Inbox {
 
     /// The full id of the one Message whose id starts with `prefix` (ADR 0001); fails when no
     /// Message or several do, listing the several.
-    fn resolve(&self, prefix: &str) -> Result<String> {
+    fn resolve(&self, prefix: &IdPrefix) -> Result<MessageId> {
         let mut statement = self.connection.prepare(
             "SELECT id FROM messages WHERE substr(id, 1, length(?1)) = ?1 ORDER BY arrival",
         )?;
         let mut matches = statement
-            .query_map([prefix], |row| row.get::<_, String>(0))?
+            .query_map([prefix.as_str()], |row| row.get::<_, String>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         match matches.len() {
-            0 => bail!("no Message has the id {prefix}"),
-            1 => Ok(matches.remove(0)),
+            0 => bail!("no Message has an id starting with {prefix}"),
+            1 => {
+                let stored = matches.remove(0);
+                stored
+                    .parse()
+                    .with_context(|| format!("the Inbox holds a malformed id {stored}"))
+            }
             _ => bail!(
                 "the id prefix {prefix} matches several Messages:\n{}",
                 matches.join("\n")
@@ -108,26 +114,25 @@ impl Inbox {
         }
     }
 
-    /// The Message whose id is `id` or starts with it.
-    pub fn show(&self, id: &str) -> Result<Message> {
-        let id = self.resolve(id)?;
-        let (arrival, stored_id, sender, subject, body, created_at, parent) =
-            self.connection.query_row(
-                "SELECT arrival, id, sender, subject, body, created_at, parent
-                 FROM messages WHERE id = ?1",
-                [id],
-                |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, Option<String>>(4)?,
-                        row.get::<_, String>(5)?,
-                        row.get::<_, Option<String>>(6)?,
-                    ))
-                },
-            )?;
+    /// The Message whose id is, or is the only one to start with, `prefix`; fails when no
+    /// Message does or several do.
+    pub fn show(&self, prefix: &IdPrefix) -> Result<Message> {
+        let id = self.resolve(prefix)?;
+        let (arrival, sender, subject, body, created_at, parent) = self.connection.query_row(
+            "SELECT arrival, sender, subject, body, created_at, parent
+             FROM messages WHERE id = ?1",
+            [id.to_string()],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                ))
+            },
+        )?;
         let mut statement = self
             .connection
             .prepare("SELECT name FROM receivers WHERE arrival = ?1 ORDER BY position")?;
@@ -135,9 +140,7 @@ impl Inbox {
             .query_map([arrival], |row| row.get::<_, String>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(Message {
-            id: stored_id
-                .parse()
-                .with_context(|| format!("the Inbox holds a malformed id {stored_id}"))?,
+            id,
             sender,
             receivers,
             subject,

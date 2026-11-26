@@ -8,7 +8,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use inbox::Inbox;
-use message::NewMessage;
+use message::{IdPrefix, NewMessage};
 
 #[derive(Parser)]
 #[command(
@@ -38,14 +38,15 @@ enum Command {
         body: Option<String>,
         /// Store the Message as a Reply to this Message, named by its id or a unique prefix
         #[arg(long)]
-        reply_to: Option<String>,
+        reply_to: Option<IdPrefix>,
     },
     /// List Messages in arrival order
     List,
     /// Print one Message in full
     Show {
         /// The Message's id, or a prefix of it matching only that Message
-        id: String,
+        #[arg(value_name = "ID")]
+        prefix: IdPrefix,
         /// Print the Message as JSON
         #[arg(long)]
         json: bool,
@@ -82,9 +83,9 @@ fn run(command: Command) -> Result<()> {
             println!("{id}");
         }
         Command::List => anyhow::bail!("not implemented yet"),
-        Command::Show { id, json } => {
+        Command::Show { prefix, json } => {
             let inbox = Inbox::open(&location::inbox_folder()?)?;
-            let message = inbox.show(&id)?;
+            let message = inbox.show(&prefix)?;
             if json {
                 println!("{}", message.to_json());
             } else {

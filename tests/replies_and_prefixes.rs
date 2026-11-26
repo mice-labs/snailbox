@@ -6,11 +6,20 @@ mod common;
 
 use common::{create, snailbox, stderr, stdout, TempFolder};
 use serde_json::Value;
+use std::process::Output;
 
 const BASE: [&str; 6] = ["--from", "alice", "--to", "bob", "--subject", "hi"];
 
 fn reply_args(parent: &str) -> Vec<&str> {
     [&BASE[..], &["--reply-to", parent]].concat()
+}
+
+/// Runs `snailbox create` with `--reply-to parent`, whatever the outcome.
+fn create_reply(home: &TempFolder, parent: &str) -> Output {
+    snailbox(
+        home.path(),
+        &[&["create"], &reply_args(parent)[..]].concat(),
+    )
 }
 
 /// Creates Messages until two ids share their first character, and returns that character
@@ -85,25 +94,57 @@ fn reply_to_an_unknown_id_fails_and_stores_nothing() {
     let existing = create(home.path(), &BASE);
     let unknown = "00000000-0000-4000-8000-000000000000";
 
-    let output = snailbox(
-        home.path(),
-        &[&["create"], &reply_args(unknown)[..]].concat(),
-    );
+    let output = create_reply(&home, unknown);
 
     assert!(!output.status.success(), "create succeeded");
     assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
     assert_eq!(
         stderr(&output),
-        format!("snailbox: no Message has the id {unknown}\n")
+        format!("snailbox: no Message has an id starting with {unknown}\n")
     );
-    // The empty prefix matches every Message, so it names one only when the Inbox holds one.
-    let all = snailbox(home.path(), &["show", ""]);
-    assert!(all.status.success(), "show failed: {}", stderr(&all));
-    assert!(
-        stdout(&all).contains(&existing),
-        "show printed {}",
-        stdout(&all)
-    );
+    // Each hex digit is a one-character prefix: exactly one of them resolves while the Inbox
+    // holds only `existing`, and a stored reply would make a second digit resolve.
+    let resolving: Vec<String> = "0123456789abcdef"
+        .chars()
+        .map(|digit| snailbox(home.path(), &["show", &digit.to_string(), "--json"]))
+        .filter(|shown| shown.status.success())
+        .map(|shown| {
+            let json: Value = serde_json::from_str(&stdout(&shown)).expect("show prints JSON");
+            json["id"].as_str().expect("id is a string").to_string()
+        })
+        .collect();
+    assert_eq!(resolving, [existing]);
+}
+
+#[test]
+fn an_empty_prefix_is_rejected_by_show_and_by_reply_to() {
+    let home = TempFolder::new("empty-prefix");
+    create(home.path(), &BASE);
+
+    let shown = snailbox(home.path(), &["show", ""]);
+    let replied = create_reply(&home, "");
+
+    for output in [&shown, &replied] {
+        assert!(!output.status.success(), "the command succeeded");
+        assert!(output.stdout.is_empty(), "stdout was {}", stdout(output));
+        assert!(
+            stderr(output).contains("an id prefix cannot be empty"),
+            "stderr was {}",
+            stderr(output)
+        );
+    }
+}
+
+#[test]
+fn a_prefix_matches_whatever_its_letter_case() {
+    let home = TempFolder::new("prefix-case");
+    let id = create(home.path(), &BASE);
+
+    let output = snailbox(home.path(), &["show", &id[..12].to_uppercase(), "--json"]);
+
+    assert!(output.status.success(), "show failed: {}", stderr(&output));
+    let shown: Value = serde_json::from_str(&stdout(&output)).expect("show --json prints JSON");
+    assert_eq!(shown["id"], id.as_str());
 }
 
 #[test]
@@ -124,10 +165,7 @@ fn a_prefix_matching_several_messages_fails_and_lists_them() {
     let (first, one, other) = two_ids_sharing_a_first_character(&home);
 
     let shown = snailbox(home.path(), &["show", &first.to_string()]);
-    let replied = snailbox(
-        home.path(),
-        &[&["create"], &reply_args(&first.to_string())[..]].concat(),
-    );
+    let replied = create_reply(&home, &first.to_string());
 
     for output in [&shown, &replied] {
         assert!(!output.status.success(), "the command succeeded");
@@ -153,5 +191,8 @@ fn a_value_matching_no_message_fails_with_a_clear_error() {
 
     assert!(!output.status.success(), "show succeeded");
     assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
-    assert_eq!(stderr(&output), "snailbox: no Message has the id zzzz\n");
+    assert_eq!(
+        stderr(&output),
+        "snailbox: no Message has an id starting with zzzz\n"
+    );
 }
