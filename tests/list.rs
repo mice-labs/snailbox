@@ -87,8 +87,9 @@ fn list_returns_messages_oldest_stored_first() {
     // Twelve Messages stored with descending subjects, which sort differently as text, and
     // with random ids, so neither subject nor id order explains the result. This does not
     // prove that creation time plays no part: the command line offers no way to give a Message
-    // a creation time other than now, and creation times never run backwards, so a list sorted
-    // by creation time would also pass here. That the order is the Inbox's own is pinned by
+    // a creation time other than now, and while the system clock does not step back during
+    // the test, creation times never run backwards, so a list sorted by creation time would
+    // also pass here; if the clock does step back, this test can fail for that reason alone. That the order is the Inbox's own is pinned by
     // ADR 0001 and the `ORDER BY arrival` in `Inbox::list`.
     let subjects: Vec<String> = (0..12).map(|n| format!("message {}", 12 - n)).collect();
     for subject in &subjects {

@@ -40,7 +40,7 @@ enum Command {
     /// List Messages in arrival order, oldest first
     ///
     /// Messages always come in arrival order, oldest first: the order this Inbox stored them
-    /// in, never the order of their creation times. There is no sort flag.
+    /// in, never decided by their creation times. There is no sort flag.
     List {
         /// Only Messages with this name among their Receivers
         #[arg(long)]

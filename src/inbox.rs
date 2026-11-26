@@ -121,7 +121,7 @@ impl Inbox {
     fn with_receivers(&self, row: StoredMessage) -> Result<Message> {
         let mut statement = self
             .connection
-            .prepare("SELECT name FROM receivers WHERE arrival = ?1 ORDER BY position")?;
+            .prepare_cached("SELECT name FROM receivers WHERE arrival = ?1 ORDER BY position")?;
         let receivers = statement
             .query_map([row.arrival], |row| row.get::<_, String>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;

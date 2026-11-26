@@ -1,4 +1,5 @@
-//! A Message, its id, and the two forms `show` prints it in.
+//! A Message, its id, and the forms it prints in: `show`'s text and JSON, `list`'s one-line
+//! text and the JSON object `list --json` embeds.
 
 use std::fmt;
 
@@ -12,14 +13,7 @@ impl MessageId {
     pub fn random() -> Self {
         Self(Uuid::new_v4())
     }
-}
 
-/// `text` with each tab, carriage return and line feed replaced by a space.
-fn one_line(text: &str) -> String {
-    text.replace(['\t', '\r', '\n'], " ")
-}
-
-impl MessageId {
     /// The first eight characters of the id, which `list` prints.
     pub fn short(&self) -> String {
         self.to_string()[..8].to_owned()
@@ -55,6 +49,11 @@ pub struct Message {
     pub subject: String,
     pub body: Option<String>,
     pub created_at: DateTime<Utc>,
+}
+
+/// `text` with each tab, carriage return and line feed replaced by a space; `to_list_line` uses it.
+fn one_line(text: &str) -> String {
+    text.replace(['\t', '\r', '\n'], " ")
 }
 
 impl Message {
