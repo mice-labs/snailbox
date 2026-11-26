@@ -180,7 +180,7 @@ fn a_value_matching_no_message_fails_saying_what_to_do_next() {
     let replied = create_reply(&home, "zzzz");
 
     for (output, names) in [(&shown, "show's ID argument"), (&replied, "--reply-to")] {
-        assert!(!output.status.success(), "the command succeeded");
+        assert!(!output.status.success(), "{names} zzzz succeeded");
         assert!(output.stdout.is_empty(), "stdout was {}", stdout(output));
         assert_eq!(
             stderr(output),
@@ -216,6 +216,11 @@ fn a_date_or_time_given_to_show_or_reply_to_is_an_error_saying_it_takes_a_messag
         for (output, names) in [(&shown, "show's ID argument"), (&replied, "--reply-to")] {
             assert!(!output.status.success(), "{names} {value} succeeded");
             assert!(
+                output.stdout.is_empty(),
+                "stdout for {names} {value} was {}",
+                stdout(output)
+            );
+            assert!(
                 stderr(output).contains(&format!(
                     "{names} takes a Message id (or a unique prefix of one), not a date or time"
                 )),
@@ -223,5 +228,41 @@ fn a_date_or_time_given_to_show_or_reply_to_is_an_error_saying_it_takes_a_messag
                 stderr(output)
             );
         }
+    }
+}
+
+/// The help text for the argument or option `marker` names, its whitespace collapsed so line
+/// wrapping does not matter, up to the next option or section heading.
+fn help_entry(help: &str, marker: &str) -> String {
+    let words = help.split_whitespace().collect::<Vec<_>>().join(" ");
+    let start = words
+        .rfind(marker)
+        .unwrap_or_else(|| panic!("no {marker} in {help}"));
+    let entry = &words[start + marker.len()..];
+    let end = [" -", " Options:"]
+        .iter()
+        .filter_map(|next| entry.find(next))
+        .min()
+        .unwrap_or(entry.len());
+    entry[..end].trim().to_owned()
+}
+
+#[test]
+fn the_help_says_show_and_reply_to_take_a_message_id_not_a_date_or_time() {
+    let home = TempFolder::new("prefix-help");
+
+    for (args, marker) in [
+        (["show", "--help"], "<ID>"),
+        (["create", "--help"], "--reply-to <ID>"),
+    ] {
+        let output = snailbox(home.path(), &args);
+
+        assert!(output.status.success(), "{args:?} failed: {}", stderr(&output));
+        let entry = help_entry(&stdout(&output), marker);
+        assert!(entry.contains("id"), "help for {marker} was {entry}");
+        assert!(
+            entry.ends_with("(not a date or time)"),
+            "help for {marker} was {entry}"
+        );
     }
 }

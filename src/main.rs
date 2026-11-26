@@ -11,7 +11,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use body::BodySource;
-use inbox::{IdField, Inbox, LeftOut, ListFilter, NoMessageFor};
+use inbox::{IdInput, Inbox, LeftOut, ListFilter, NoMessageFor};
 use message::{IdPrefix, Message, MessageId, NewMessage};
 
 #[derive(Parser)]
@@ -46,8 +46,9 @@ enum Command {
         /// Take the body from standard input, which must not be empty
         #[arg(long)]
         stdin: bool,
-        /// Store the Message as a Reply to this Message, named by its id or a unique prefix
-        #[arg(long)]
+        /// Store the Message as a Reply to this Message, named by its Message id or a unique
+        /// prefix of it (not a date or time)
+        #[arg(long, value_name = "ID")]
         reply_to: Option<IdPrefix>,
     },
     /// List Messages in arrival order, oldest first
@@ -93,7 +94,7 @@ enum Command {
     },
     /// Print one Message in full
     Show {
-        /// The Message's id, or a prefix of it matching only that Message
+        /// The Message's id, or a prefix of it matching only that Message (not a date or time)
         #[arg(value_name = "ID")]
         prefix: IdPrefix,
         /// Print the Message as JSON
@@ -121,20 +122,20 @@ const THREAD_FLAG: &str = "--thread";
 /// characters are the start of a stored id (an all-digit value such as 20261126 is a valid hex
 /// prefix, and ids are random UUIDs, ADR 0001).
 fn hint_id_error(error: anyhow::Error) -> anyhow::Error {
-    let Some(NoMessageFor { field, no_message }) = error.downcast_ref::<NoMessageFor>() else {
+    let Some(NoMessageFor { input, no_message }) = error.downcast_ref::<NoMessageFor>() else {
         return error;
     };
-    let input = match field {
-        IdField::After => AFTER_FLAG,
-        IdField::Before => BEFORE_FLAG,
-        IdField::Upthread => UPTHREAD_FLAG,
-        IdField::Downthread => DOWNTHREAD_FLAG,
-        IdField::Thread => THREAD_FLAG,
-        IdField::Show => "show's ID argument",
-        IdField::ReplyTo => "--reply-to",
+    let named = match input {
+        IdInput::After => AFTER_FLAG,
+        IdInput::Before => BEFORE_FLAG,
+        IdInput::Upthread => UPTHREAD_FLAG,
+        IdInput::Downthread => DOWNTHREAD_FLAG,
+        IdInput::Thread => THREAD_FLAG,
+        IdInput::Show => "show's ID argument",
+        IdInput::ReplyTo => "--reply-to",
     };
     anyhow::anyhow!(
-        "{no_message}; {input} takes a Message id (or a unique prefix of one), not a date or \
+        "{no_message}; {named} takes a Message id (or a unique prefix of one), not a date or \
          time; run `snailbox list` to find one"
     )
 }

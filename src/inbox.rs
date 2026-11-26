@@ -61,7 +61,7 @@ impl std::error::Error for NoMessage {}
 /// The inputs that name a Message by id or prefix: the `ListFilter` id fields, the Message
 /// `show` prints and the parent a new Message replies to.
 #[derive(Debug, Clone, Copy)]
-pub enum IdField {
+pub enum IdInput {
     After,
     Before,
     Upthread,
@@ -71,11 +71,11 @@ pub enum IdField {
     ReplyTo,
 }
 
-/// An id field named a prefix no Message matches; a caller downcasts to it to add a hint
-/// naming the field.
+/// An id input named a prefix no Message matches; a caller downcasts to it to add a hint
+/// naming the input.
 #[derive(Debug)]
 pub struct NoMessageFor {
-    pub field: IdField,
+    pub input: IdInput,
     pub no_message: NoMessage,
 }
 
@@ -108,7 +108,7 @@ impl Inbox {
         let parent = new
             .reply_to
             .as_ref()
-            .map(|prefix| self.resolve_field(prefix, IdField::ReplyTo))
+            .map(|prefix| self.resolve_input(prefix, IdInput::ReplyTo))
             .transpose()?
             .map(|parent| parent.id);
         let id = MessageId::random();
@@ -172,11 +172,11 @@ impl Inbox {
         }
     }
 
-    /// `resolve` for an id field, whose no-match error names `field`.
-    fn resolve_field(&self, prefix: &IdPrefix, field: IdField) -> Result<StoredMessage> {
+    /// `resolve` for an id input, whose no-match error names `input`.
+    fn resolve_input(&self, prefix: &IdPrefix, input: IdInput) -> Result<StoredMessage> {
         self.resolve(prefix)
             .map_err(|error| match error.downcast::<NoMessage>() {
-                Ok(no_message) => NoMessageFor { field, no_message }.into(),
+                Ok(no_message) => NoMessageFor { input, no_message }.into(),
                 Err(error) => error,
             })
     }
@@ -184,7 +184,7 @@ impl Inbox {
     /// The Message whose id is, or is the only one to start with, `prefix`; fails when no
     /// Message does or several do.
     pub fn show(&self, prefix: &IdPrefix) -> Result<Message> {
-        let row = self.resolve_field(prefix, IdField::Show)?;
+        let row = self.resolve_input(prefix, IdInput::Show)?;
         self.with_receivers(row)
     }
 
@@ -193,27 +193,27 @@ impl Inbox {
     /// the oldest are kept if `after` is given and the newest otherwise, and the listing says
     /// what was left out and where to continue.
     pub fn list(&self, filter: &ListFilter) -> Result<Listing> {
-        let arrival_of = |prefix: &Option<IdPrefix>, field| {
+        let arrival_of = |prefix: &Option<IdPrefix>, input| {
             prefix
                 .as_ref()
-                .map(|prefix| self.resolve_field(prefix, field).map(|row| row.arrival))
+                .map(|prefix| self.resolve_input(prefix, input).map(|row| row.arrival))
                 .transpose()
         };
-        let after = arrival_of(&filter.after, IdField::After)?;
-        let before = arrival_of(&filter.before, IdField::Before)?;
+        let after = arrival_of(&filter.after, IdInput::After)?;
+        let before = arrival_of(&filter.before, IdInput::Before)?;
         let mut thread_filters = Vec::new();
-        let thread_flags: [(&Option<IdPrefix>, IdField, &[Direction]); 3] = [
-            (&filter.upthread, IdField::Upthread, &[Direction::Up]),
-            (&filter.downthread, IdField::Downthread, &[Direction::Down]),
+        let thread_flags: [(&Option<IdPrefix>, IdInput, &[Direction]); 3] = [
+            (&filter.upthread, IdInput::Upthread, &[Direction::Up]),
+            (&filter.downthread, IdInput::Downthread, &[Direction::Down]),
             (
                 &filter.thread,
-                IdField::Thread,
+                IdInput::Thread,
                 &[Direction::Up, Direction::Down],
             ),
         ];
-        for (prefix, field, directions) in thread_flags {
+        for (prefix, input, directions) in thread_flags {
             if let Some(prefix) = prefix {
-                let start = self.resolve_field(prefix, field)?;
+                let start = self.resolve_input(prefix, input)?;
                 thread_filters.push(self.reach(&start.id, directions)?);
             }
         }
