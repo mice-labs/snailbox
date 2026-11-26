@@ -14,6 +14,18 @@ impl MessageId {
     }
 }
 
+/// `text` with each tab, carriage return and line feed replaced by a space.
+fn one_line(text: &str) -> String {
+    text.replace(['\t', '\r', '\n'], " ")
+}
+
+impl MessageId {
+    /// The first eight characters of the id, which `list` prints.
+    pub fn short(&self) -> String {
+        self.to_string()[..8].to_owned()
+    }
+}
+
 impl fmt::Display for MessageId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.hyphenated().fmt(f)
@@ -66,16 +78,18 @@ impl Message {
     }
 
     /// One line for `list`: the first eight characters of the id, the creation time, the
-    /// Sender, the Receivers joined by commas and the subject, separated by tabs.
+    /// Sender, the Receivers joined by commas and the subject, separated by tabs. A tab or line
+    /// break inside the Sender, a Receiver or the subject prints as a space, so the line keeps
+    /// its five fields.
     pub fn to_list_line(&self) -> String {
-        let id = self.id.to_string();
+        let receivers: Vec<String> = self.receivers.iter().map(|r| one_line(r)).collect();
         format!(
             "{}\t{}\t{}\t{}\t{}",
-            &id[..8],
+            self.id.short(),
             self.local_time(),
-            self.sender,
-            self.receivers.join(","),
-            self.subject
+            one_line(&self.sender),
+            receivers.join(","),
+            one_line(&self.subject)
         )
     }
 

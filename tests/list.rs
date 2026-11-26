@@ -84,13 +84,41 @@ fn list_prints_one_line_per_message_with_short_id_time_sender_receivers_and_subj
 #[test]
 fn list_returns_messages_oldest_stored_first() {
     let home = TempFolder::new("list-order");
-    // Twelve Messages, created within the same second, so only arrival order can sort them.
-    let subjects: Vec<String> = (0..12).map(|n| format!("message {n}")).collect();
+    // Twelve Messages stored with descending subjects, which sort differently as text, and
+    // with random ids, so neither subject nor id order explains the result. This does not
+    // prove that creation time plays no part: the command line offers no way to give a Message
+    // a creation time other than now, and creation times never run backwards, so a list sorted
+    // by creation time would also pass here. That the order is the Inbox's own is pinned by
+    // ADR 0001 and the `ORDER BY arrival` in `Inbox::list`.
+    let subjects: Vec<String> = (0..12).map(|n| format!("message {}", 12 - n)).collect();
     for subject in &subjects {
         store(&home, "alice", &["bob"], subject);
     }
 
     assert_eq!(listed_subjects(&home, &[]), subjects);
+}
+
+#[test]
+fn a_tab_or_newline_in_a_field_does_not_break_the_list_line() {
+    let home = TempFolder::new("list-escape");
+    store(
+        &home,
+        "al\tice",
+        &["bo\nb", "ca\trol"],
+        "two\nlines\tand tabs",
+    );
+
+    let output = snailbox(home.path(), &["list"]);
+
+    assert!(output.status.success(), "list failed: {}", stderr(&output));
+    let text = stdout(&output);
+    assert_eq!(text.lines().count(), 1, "output was {text:?}");
+    let line = text.strip_suffix('\n').expect("a trailing newline");
+    let fields: Vec<&str> = line.split('\t').collect();
+    assert_eq!(fields.len(), 5, "fields were {fields:?}");
+    assert_eq!(fields[2], "al ice");
+    assert_eq!(fields[3], "bo b,ca rol");
+    assert_eq!(fields[4], "two lines and tabs");
 }
 
 #[test]
@@ -171,4 +199,20 @@ fn list_help_states_arrival_order_as_a_guarantee() {
     assert!(help.contains("arrival order"), "help was {help}");
     assert!(help.contains("oldest first"), "help was {help}");
     assert!(!help.contains("--sort"), "help was {help}");
+}
+
+#[test]
+fn the_short_help_of_list_and_of_snailbox_says_oldest_first() {
+    let home = TempFolder::new("list-short-help");
+
+    for args in [&["list", "-h"][..], &["--help"][..]] {
+        let output = snailbox(home.path(), args);
+
+        assert!(output.status.success());
+        let help = stdout(&output);
+        assert!(
+            help.contains("oldest first"),
+            "help for {args:?} was {help}"
+        );
+    }
 }

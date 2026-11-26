@@ -95,7 +95,7 @@ impl Inbox {
         let Some(row) = row else {
             bail!("no Message has the id {id}");
         };
-        self.message(row)
+        self.with_receivers(row)
     }
 
     /// The Messages matching `filter`, in the order this Inbox stored them, oldest first
@@ -112,10 +112,13 @@ impl Inbox {
         let rows = statement
             .query_map(params![filter.from, filter.to], StoredMessage::from_row)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        rows.into_iter().map(|row| self.message(row)).collect()
+        rows.into_iter()
+            .map(|row| self.with_receivers(row))
+            .collect()
     }
 
-    fn message(&self, row: StoredMessage) -> Result<Message> {
+    /// The Message `row` stores, with its Receivers read from the `receivers` table.
+    fn with_receivers(&self, row: StoredMessage) -> Result<Message> {
         let mut statement = self
             .connection
             .prepare("SELECT name FROM receivers WHERE arrival = ?1 ORDER BY position")?;
@@ -161,12 +164,12 @@ struct StoredMessage {
 impl StoredMessage {
     fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
         Ok(Self {
-            arrival: row.get(0)?,
-            id: row.get(1)?,
-            sender: row.get(2)?,
-            subject: row.get(3)?,
-            body: row.get(4)?,
-            created_at: row.get(5)?,
+            arrival: row.get("arrival")?,
+            id: row.get("id")?,
+            sender: row.get("sender")?,
+            subject: row.get("subject")?,
+            body: row.get("body")?,
+            created_at: row.get("created_at")?,
         })
     }
 }

@@ -27,6 +27,11 @@ _Avoid_: author, user, account
 A name a Message is addressed to. Any name can be a Receiver without being registered first.
 _Avoid_: recipient, subscriber, consumer
 
+**Arrival order**:
+The order in which the Inbox stored its Messages, oldest stored first. `list` always returns
+Messages in it, and it never depends on their creation times.
+_Avoid_: creation order, chronological order, sort order
+
 **Reply**:
 A Message that answers one other Message, its **parent**.
 _Avoid_: response, follow-up

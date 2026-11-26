@@ -37,7 +37,7 @@ enum Command {
         #[arg(long)]
         body: Option<String>,
     },
-    /// List Messages in arrival order
+    /// List Messages in arrival order, oldest first
     ///
     /// Messages always come in arrival order, oldest first: the order this Inbox stored them
     /// in, never the order of their creation times. There is no sort flag.
