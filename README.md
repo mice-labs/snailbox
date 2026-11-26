@@ -11,6 +11,7 @@ snailbox create --from bob --to alice --subject 're: lunch?' --reply-to "${id:0:
 snailbox list                # one line per Message (at most 50), oldest stored first
 snailbox list --to bob --from alice --json
 snailbox list --after "${id:0:8}" --limit 20   # catch up from the last Message handled
+snailbox list --thread "${id:0:8}"             # the Thread a Message belongs to, no side branches
 ```
 
 `create` needs `--from` (there is no default Sender and no fallback to the operating-system
@@ -58,6 +59,15 @@ that the flag takes a Message id, not a date or time. The exception is an all-di
 such as `20261126`, which is also a valid id prefix: it is read as one, and matches a Message
 only when that Message's id happens to start with it.
 
+`--upthread <id>`, `--downthread <id>` and `--thread <id>` follow Replies from the named
+Message, which they always include: `--upthread` adds the chain of Messages it replies to, back
+to one that is not a Reply; `--downthread` adds every Reply beneath it at any depth; `--thread`
+adds both. Replies on other branches are left out of all three. They take a Message id or a
+unique prefix, with the same errors as `--after` (several-match, and no-match with its hint
+that the flag takes a Message id, not a date or time, and its all-digit exception), keep arrival
+order, and combine with every other filter; when given together they all apply. So
+`--downthread <id> --after <last-seen-id>` returns only the new Replies beneath a Message.
+
 `--limit <n>` defaults to 50 and `--limit 0` removes it.
 When more Messages match than the limit, `--after` (alone or with `--before`) returns the first
 n after that Message, `--before` alone returns the last n before it, and no cursor returns
@@ -69,7 +79,7 @@ that case prints an object instead of the array: `messages` (the array), `left_o
 and `next` (the flag); when nothing was left out the output is the plain array, with no notice.
 So a consumer of `--json` handles both shapes: an array, or an object whose `messages` is the
 array. The cursors and limit combine with `--to` and `--from`, which narrow
-the matches before the limit applies.
+the matches before the limit applies, as do the thread filters.
 
 The Inbox is a SQLite database in the folder `SNAILBOX_HOME` names when it is set, else
 `$XDG_DATA_HOME/snailbox/` when that is set, else `~/.local/share/snailbox/`. An empty

@@ -5,7 +5,7 @@
 
 mod common;
 
-use common::{listed_subjects, snailbox, stderr, stdout, store, TempFolder};
+use common::{failed_list, listed_subjects, snailbox, stdout, store, TempFolder};
 use serde_json::Value;
 
 /// A home holding Messages "m1" to "mN" from alice to bob, and their ids in order.
@@ -19,17 +19,6 @@ fn home_with(count: usize, name: &str) -> (TempFolder, Vec<String>) {
 
 fn subjects(range: std::ops::RangeInclusive<usize>) -> Vec<String> {
     range.map(|n| format!("m{n}")).collect()
-}
-
-fn failed_list(home: &TempFolder, args: &[&str]) -> String {
-    let output = snailbox(home.path(), &[&["list"], args].concat());
-    assert!(
-        !output.status.success(),
-        "list succeeded: {}",
-        stdout(&output)
-    );
-    assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
-    stderr(&output)
 }
 
 #[test]

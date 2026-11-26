@@ -1,0 +1,265 @@
+//! `list --upthread`, `--downthread` and `--thread`: each is relative to the named Message,
+//! always includes it, leaves out Replies on other branches, keeps arrival order and combines
+//! with `--to`, `--from`, `--after`, `--before`, `--limit` and each other. Each test runs the built binary against its own temporary
+//! `SNAILBOX_HOME`.
+
+mod common;
+
+use common::{create, failed_list, listed_subjects, snailbox, stdout, store, TempFolder};
+
+/// A home holding a branching tree, stored in the order m1 to m7:
+///
+/// ```text
+/// m1 ─ m2 ─ m4 ─ m5
+///   └─ m3 ─ m6
+/// m7
+/// ```
+///
+/// Returns the ids in that order.
+fn tree(name: &str) -> (TempFolder, Vec<String>) {
+    let home = TempFolder::new(name);
+    let parents = [None, Some(0), Some(0), Some(1), Some(3), Some(2), None];
+    let mut ids: Vec<String> = Vec::new();
+    for (index, parent) in parents.iter().enumerate() {
+        let subject = format!("m{}", index + 1);
+        let id = match parent {
+            None => store(&home, "alice", &["bob"], &subject),
+            Some(parent) => create(
+                home.path(),
+                &[
+                    "--from",
+                    if index % 2 == 0 { "alice" } else { "bob" },
+                    "--to",
+                    "carol",
+                    "--subject",
+                    &subject,
+                    "--reply-to",
+                    &ids[*parent],
+                ],
+            ),
+        };
+        ids.push(id);
+    }
+    (home, ids)
+}
+
+#[test]
+fn upthread_returns_the_message_and_the_chain_it_replies_to() {
+    let (home, ids) = tree("up-leaf");
+
+    assert_eq!(
+        listed_subjects(&home, &["--upthread", &ids[4]]),
+        ["m1", "m2", "m4", "m5"]
+    );
+    assert_eq!(
+        listed_subjects(&home, &["--upthread", &ids[2]]),
+        ["m1", "m3"]
+    );
+}
+
+#[test]
+fn upthread_of_a_message_that_is_not_a_reply_is_that_message_alone() {
+    let (home, ids) = tree("up-first");
+
+    assert_eq!(listed_subjects(&home, &["--upthread", &ids[0]]), ["m1"]);
+}
+
+#[test]
+fn upthread_of_a_middle_message_stops_at_it() {
+    let (home, ids) = tree("up-middle");
+
+    assert_eq!(
+        listed_subjects(&home, &["--upthread", &ids[3]]),
+        ["m1", "m2", "m4"]
+    );
+}
+
+#[test]
+fn downthread_returns_the_message_and_every_reply_beneath_it() {
+    let (home, ids) = tree("down-first");
+
+    assert_eq!(
+        listed_subjects(&home, &["--downthread", &ids[0]]),
+        ["m1", "m2", "m3", "m4", "m5", "m6"]
+    );
+}
+
+#[test]
+fn downthread_of_a_middle_message_leaves_out_other_branches() {
+    let (home, ids) = tree("down-middle");
+
+    assert_eq!(
+        listed_subjects(&home, &["--downthread", &ids[1]]),
+        ["m2", "m4", "m5"]
+    );
+}
+
+#[test]
+fn downthread_of_a_leaf_is_that_message_alone() {
+    let (home, ids) = tree("down-leaf");
+
+    assert_eq!(listed_subjects(&home, &["--downthread", &ids[4]]), ["m5"]);
+}
+
+#[test]
+fn thread_of_the_first_message_is_the_whole_tree_it_roots() {
+    let (home, ids) = tree("thread-first");
+
+    assert_eq!(
+        listed_subjects(&home, &["--thread", &ids[0]]),
+        ["m1", "m2", "m3", "m4", "m5", "m6"]
+    );
+}
+
+#[test]
+fn thread_of_a_middle_message_leaves_out_other_branches() {
+    let (home, ids) = tree("thread-middle");
+
+    assert_eq!(
+        listed_subjects(&home, &["--thread", &ids[1]]),
+        ["m1", "m2", "m4", "m5"]
+    );
+}
+
+#[test]
+fn thread_of_a_leaf_is_the_chain_back_to_the_first_message() {
+    let (home, ids) = tree("thread-leaf");
+
+    assert_eq!(
+        listed_subjects(&home, &["--thread", &ids[5]]),
+        ["m1", "m3", "m6"]
+    );
+}
+
+#[test]
+fn a_thread_filter_accepts_a_unique_prefix() {
+    let (home, ids) = tree("prefix");
+
+    for flag in ["--upthread", "--downthread", "--thread"] {
+        assert_eq!(
+            listed_subjects(&home, &[flag, &ids[1]]),
+            listed_subjects(&home, &[flag, &ids[1][..8]]),
+            "{flag} with a prefix"
+        );
+    }
+}
+
+#[test]
+fn a_thread_filter_naming_no_message_is_an_error() {
+    let (home, _) = tree("no-match");
+
+    for flag in ["--upthread", "--downthread", "--thread"] {
+        let error = failed_list(&home, &[flag, "ffffffff-ffff"]);
+
+        assert!(
+            error.contains("no Message has an id starting with ffffffff-ffff"),
+            "stderr for {flag} was {error}"
+        );
+        assert!(
+            error.contains(flag),
+            "stderr for {flag} does not name the flag: {error}"
+        );
+    }
+}
+
+#[test]
+fn a_thread_filter_naming_several_messages_lists_them() {
+    let home = TempFolder::new("ambiguous");
+    // Ids are random, so this takes a handful of Messages, not a fixed number.
+    let mut seen: Vec<String> = Vec::new();
+    let (first, one, other) = loop {
+        let id = store(&home, "alice", &["bob"], "m");
+        let first = id.chars().next().expect("an id is not empty");
+        if let Some(earlier) = seen.iter().find(|other| other.starts_with(first)) {
+            break (first.to_string(), earlier.clone(), id);
+        }
+        seen.push(id);
+    };
+
+    for flag in ["--upthread", "--downthread", "--thread"] {
+        let error = failed_list(&home, &[flag, &first]);
+
+        assert!(
+            error.contains(&format!("the id prefix {first} matches several Messages:")),
+            "stderr for {flag} was {error}"
+        );
+        assert!(error.contains(&one) && error.contains(&other), "{error}");
+    }
+}
+
+/// Every thread filter named on m2 (`ids[1]`) combined with each of `--to`, `--from`,
+/// `--after`, `--before` and `--limit`: the thread filter's Messages, narrowed by the other
+/// filter. m2 and m4 are from bob and m5 from alice; every Reply is to carol.
+#[test]
+fn each_thread_filter_combines_with_to_from_after_before_and_limit() {
+    let (home, ids) = tree("combine");
+    // (extra flags, expected for --upthread, --downthread and --thread of m2)
+    let cases: [(Vec<&str>, [&[&str]; 3]); 6] = [
+        (
+            vec!["--from", "bob"],
+            [&["m2"], &["m2", "m4"], &["m2", "m4"]],
+        ),
+        (
+            vec!["--to", "carol"],
+            [&["m2"], &["m2", "m4", "m5"], &["m2", "m4", "m5"]],
+        ),
+        (
+            vec!["--after", &ids[1]],
+            [&[], &["m4", "m5"], &["m4", "m5"]],
+        ),
+        (
+            vec!["--before", &ids[3]],
+            [&["m1", "m2"], &["m2"], &["m1", "m2"]],
+        ),
+        (
+            vec!["--after", &ids[0], "--before", &ids[4]],
+            [&["m2"], &["m2", "m4"], &["m2", "m4"]],
+        ),
+        (vec!["--limit", "1"], [&["m2"], &["m5"], &["m5"]]),
+    ];
+
+    for (extra, expected) in cases {
+        for (flag, expected) in ["--upthread", "--downthread", "--thread"]
+            .into_iter()
+            .zip(expected)
+        {
+            let args = [&[flag, ids[1].as_str()], extra.as_slice()].concat();
+            assert_eq!(listed_subjects(&home, &args), expected, "{flag} {extra:?}");
+        }
+    }
+}
+
+#[test]
+fn a_thread_filter_combines_with_limit_and_the_notice_names_the_cut() {
+    let (home, ids) = tree("limit");
+
+    let output = snailbox(
+        home.path(),
+        &["list", "--downthread", &ids[0], "--limit", "2"],
+    );
+    assert!(output.status.success());
+    let text = stdout(&output);
+    let lines: Vec<_> = text.lines().collect();
+    assert_eq!(lines.len(), 3, "{text}");
+    assert!(lines[0].ends_with("\tm5"), "{text}");
+    assert!(lines[1].ends_with("\tm6"), "{text}");
+    assert!(lines[2].starts_with("4 older Messages left out"), "{text}");
+}
+
+#[test]
+fn thread_filters_given_together_all_apply() {
+    let (home, ids) = tree("together");
+
+    assert_eq!(
+        listed_subjects(&home, &["--upthread", &ids[4], "--downthread", &ids[1]]),
+        ["m2", "m4", "m5"]
+    );
+    assert_eq!(
+        listed_subjects(&home, &["--thread", &ids[1], "--downthread", &ids[3]]),
+        ["m4", "m5"]
+    );
+    assert_eq!(
+        listed_subjects(&home, &["--thread", &ids[1], "--upthread", &ids[3]]),
+        ["m1", "m2", "m4"]
+    );
+}
