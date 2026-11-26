@@ -1,5 +1,6 @@
 //! The Inbox: the SQLite store of Messages, and the operations snailbox offers on it.
 
+use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::path::Path;
 
@@ -159,6 +160,19 @@ impl Inbox {
             .as_ref()
             .map(|prefix| self.arrival_of(prefix))
             .transpose()?;
+        let mut thread_filters = Vec::new();
+        for (prefix, direction) in [
+            (&filter.upthread, Direction::Up),
+            (&filter.downthread, Direction::Down),
+        ] {
+            if let Some(prefix) = prefix {
+                thread_filters.push(self.reach(&self.resolve(prefix)?, &[direction])?);
+            }
+        }
+        if let Some(prefix) = &filter.thread {
+            thread_filters
+                .push(self.reach(&self.resolve(prefix)?, &[Direction::Up, Direction::Down])?);
+        }
         let mut statement = self.connection.prepare(&format!(
             "{SELECT_MESSAGE}
              WHERE (?1 IS NULL OR sender = ?1)
@@ -175,6 +189,7 @@ impl Inbox {
                 StoredMessage::from_row,
             )?
             .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.retain(|row| thread_filters.iter().all(|ids| ids.contains(&row.id)));
         let excess = filter
             .limit
             .map_or(0, |limit| rows.len().saturating_sub(limit.get()));
@@ -201,6 +216,33 @@ impl Inbox {
             }),
         };
         Ok(Listing { messages, left_out })
+    }
+
+    /// The ids of `start` and every Message reached from it by walking `directions`: Upthread
+    /// follows each Message to the one it replies to, Downthread to the Replies to it.
+    fn reach(&self, start: &MessageId, directions: &[Direction]) -> Result<HashSet<String>> {
+        let mut ids = HashSet::new();
+        for direction in directions {
+            let step = match direction {
+                Direction::Up => {
+                    "SELECT messages.parent FROM messages
+                                  JOIN reached ON messages.id = reached.id
+                                  WHERE messages.parent IS NOT NULL"
+                }
+                Direction::Down => {
+                    "SELECT messages.id FROM messages
+                                    JOIN reached ON messages.parent = reached.id"
+                }
+            };
+            let mut statement = self.connection.prepare(&format!(
+                "WITH RECURSIVE reached(id) AS (SELECT ?1 UNION {step}) SELECT id FROM reached"
+            ))?;
+            let found = statement
+                .query_map([start.to_string()], |row| row.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            ids.extend(found);
+        }
+        Ok(ids)
     }
 
     /// The arrival number of the one Message whose id starts with `prefix`.
@@ -245,6 +287,13 @@ impl Inbox {
     }
 }
 
+/// Which way along Replies `Inbox::reach` walks.
+#[derive(Clone, Copy)]
+enum Direction {
+    Up,
+    Down,
+}
+
 /// Which Messages `list` returns; a field left `None` does not narrow the result.
 pub struct ListFilter {
     /// Matches a Message that has this name among its Receivers.
@@ -255,6 +304,15 @@ pub struct ListFilter {
     pub after: Option<IdPrefix>,
     /// Matches only Messages this Inbox stored before the Message with this id or prefix.
     pub before: Option<IdPrefix>,
+    /// Matches only the Message with this id or prefix and the Messages it replies to, at any
+    /// depth.
+    pub upthread: Option<IdPrefix>,
+    /// Matches only the Message with this id or prefix and the Replies beneath it, at any
+    /// depth.
+    pub downthread: Option<IdPrefix>,
+    /// Matches only the Message with this id or prefix with everything upthread and downthread
+    /// of it.
+    pub thread: Option<IdPrefix>,
     /// The most Messages to return; `None` returns every match.
     pub limit: Option<NonZeroUsize>,
 }

@@ -69,6 +69,18 @@ enum Command {
         /// (not a date or time)
         #[arg(long, value_name = "ID")]
         before: Option<IdPrefix>,
+        /// Only this Message, named by its Message id or a unique prefix of it, and the chain of
+        /// Messages it replies to, back to one that is not a Reply
+        #[arg(long, value_name = "ID")]
+        upthread: Option<IdPrefix>,
+        /// Only this Message, named by its Message id or a unique prefix of it, and every Reply
+        /// beneath it at any depth
+        #[arg(long, value_name = "ID")]
+        downthread: Option<IdPrefix>,
+        /// Only this Message, named by its Message id or a unique prefix of it, with everything
+        /// upthread and downthread of it; Replies on other branches are left out
+        #[arg(long, value_name = "ID")]
+        thread: Option<IdPrefix>,
         /// Return at most this many Messages, 0 for no limit: the first n after --after, else
         /// the last n before --before (alone), else the most recent n
         #[arg(long, value_name = "N", default_value_t = 50)]
@@ -101,28 +113,26 @@ fn name(text: &str) -> Result<String, String> {
 const AFTER_FLAG: &str = "--after";
 const BEFORE_FLAG: &str = "--before";
 
-/// Adds to a no-match error from a cursor the hint that the flag takes a Message id. A date
-/// or time of any format reaches this error unless its characters are the start of a stored
-/// id (an all-digit value such as 20261126 is a valid hex prefix, and ids are random UUIDs,
-/// ADR 0001); the flag is the one whose prefix failed, `--after` when both were given the
-/// same value.
-fn hint_cursor_error(
-    error: anyhow::Error,
-    after: Option<&IdPrefix>,
-    before: Option<&IdPrefix>,
-) -> anyhow::Error {
+/// Adds to a no-match error from a flag that takes a Message id the hint that the flag takes
+/// one. A date or time of any format reaches this error unless its characters are the start of
+/// a stored id (an all-digit value such as 20261126 is a valid hex prefix, and ids are random
+/// UUIDs, ADR 0001); the flag is the first one, in the order below, whose prefix failed when
+/// several were given the same value.
+fn hint_id_flag_error(error: anyhow::Error, filter: &ListFilter) -> anyhow::Error {
     let Some(no_message) = error.downcast_ref::<NoMessage>() else {
         return error;
     };
-    let flag = if after.map(IdPrefix::as_str) == Some(no_message.prefix.as_str()) {
-        AFTER_FLAG
-    } else {
-        debug_assert_eq!(
-            before.map(IdPrefix::as_str),
-            Some(no_message.prefix.as_str())
-        );
-        BEFORE_FLAG
-    };
+    let flag = [
+        (AFTER_FLAG, &filter.after),
+        (BEFORE_FLAG, &filter.before),
+        ("--upthread", &filter.upthread),
+        ("--downthread", &filter.downthread),
+        ("--thread", &filter.thread),
+    ]
+    .into_iter()
+    .find(|(_, prefix)| prefix.as_ref().map(IdPrefix::as_str) == Some(no_message.prefix.as_str()))
+    .map(|(flag, _)| flag)
+    .expect("the failed prefix was given to one of the flags that take a Message id");
     anyhow::anyhow!(
         "{no_message}; {flag} takes a Message id (or a unique prefix of one), not a date or time"
     )
@@ -210,6 +220,9 @@ fn run(command: Command) -> Result<()> {
             from,
             after,
             before,
+            upthread,
+            downthread,
+            thread,
             limit,
             json,
         } => {
@@ -219,11 +232,14 @@ fn run(command: Command) -> Result<()> {
                 from,
                 after,
                 before,
+                upthread,
+                downthread,
+                thread,
                 limit: NonZeroUsize::new(limit),
             };
-            let listing = inbox.list(&filter).map_err(|error| {
-                hint_cursor_error(error, filter.after.as_ref(), filter.before.as_ref())
-            })?;
+            let listing = inbox
+                .list(&filter)
+                .map_err(|error| hint_id_flag_error(error, &filter))?;
             if json {
                 let messages: Vec<_> = listing
                     .messages
