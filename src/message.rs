@@ -34,6 +34,8 @@ pub struct NewMessage {
     pub receivers: Vec<String>,
     pub subject: String,
     pub body: Option<String>,
+    /// The id, or a unique prefix of it, of the Message this one replies to.
+    pub reply_to: Option<String>,
 }
 
 pub struct Message {
@@ -42,19 +44,26 @@ pub struct Message {
     pub receivers: Vec<String>,
     pub subject: String,
     pub body: Option<String>,
+    pub parent: Option<MessageId>,
     pub created_at: DateTime<Utc>,
 }
 
 impl Message {
-    /// Header lines, then a blank line and the body when there is one. The creation time is
-    /// in the local time zone, which chrono reads from `TZ` or else the system setting.
+    /// Header lines (with a `Parent:` line after `Subject:` for a Reply), then a blank line and
+    /// the body when there is one. The creation time is in the local time zone, which chrono
+    /// reads from `TZ` or else the system setting.
     pub fn to_text(&self) -> String {
         let created = self
             .created_at
             .with_timezone(&Local)
             .format("%Y-%m-%d %H:%M:%S %:z");
+        let parent = self
+            .parent
+            .as_ref()
+            .map(|parent| format!("Parent:   {parent}\n"))
+            .unwrap_or_default();
         let mut text = format!(
-            "Id:       {}\nFrom:     {}\nTo:       {}\nSubject:  {}\nCreated:  {created}\n",
+            "Id:       {}\nFrom:     {}\nTo:       {}\nSubject:  {}\n{parent}Created:  {created}\n",
             self.id,
             self.sender,
             self.receivers.join(", "),
@@ -68,7 +77,8 @@ impl Message {
         text
     }
 
-    /// One JSON object; `created_at` is RFC 3339 in UTC and `body` is null when absent.
+    /// One JSON object; `created_at` is RFC 3339 in UTC, and `body` and `parent` are null when
+    /// absent.
     pub fn to_json(&self) -> String {
         serde_json::json!({
             "id": self.id.to_string(),
@@ -77,6 +87,7 @@ impl Message {
             "subject": self.subject,
             "created_at": self.created_at.to_rfc3339_opts(SecondsFormat::Secs, true),
             "body": self.body,
+            "parent": self.parent.as_ref().map(ToString::to_string),
         })
         .to_string()
     }

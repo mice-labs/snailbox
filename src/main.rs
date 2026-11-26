@@ -36,12 +36,15 @@ enum Command {
         /// The Message's body; without it the Message has none
         #[arg(long)]
         body: Option<String>,
+        /// Store the Message as a Reply to this Message, named by its id or a unique prefix
+        #[arg(long)]
+        reply_to: Option<String>,
     },
     /// List Messages in arrival order
     List,
     /// Print one Message in full
     Show {
-        /// The Message's full id
+        /// The Message's id, or a prefix of it matching only that Message
         id: String,
         /// Print the Message as JSON
         #[arg(long)]
@@ -66,6 +69,7 @@ fn run(command: Command) -> Result<()> {
             to,
             subject,
             body,
+            reply_to,
         } => {
             let mut inbox = Inbox::open(&location::inbox_folder()?)?;
             let id = inbox.create(&NewMessage {
@@ -73,6 +77,7 @@ fn run(command: Command) -> Result<()> {
                 receivers: to,
                 subject,
                 body,
+                reply_to,
             })?;
             println!("{id}");
         }

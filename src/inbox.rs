@@ -4,7 +4,7 @@ use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, SecondsFormat, Utc};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection};
 
 use crate::location;
 use crate::message::{Message, MessageId, NewMessage};
@@ -21,7 +21,8 @@ const SCHEMA: &str = "
         sender     TEXT NOT NULL,
         subject    TEXT NOT NULL,
         body       TEXT,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        parent     TEXT REFERENCES messages (id)
     );
     CREATE TABLE IF NOT EXISTS receivers (
         arrival  INTEGER NOT NULL REFERENCES messages (arrival),
@@ -50,6 +51,11 @@ impl Inbox {
 
     /// Stores `new` with a fresh id and the current time, and returns the id.
     pub fn create(&mut self, new: &NewMessage) -> Result<MessageId> {
+        let parent = new
+            .reply_to
+            .as_deref()
+            .map(|prefix| self.resolve(prefix))
+            .transpose()?;
         let id = MessageId::random();
         let created_at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
         let transaction = self
@@ -58,14 +64,15 @@ impl Inbox {
             .context("cannot store the Message")?;
         transaction
             .execute(
-                "INSERT INTO messages (id, sender, subject, body, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT INTO messages (id, sender, subject, body, created_at, parent)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![
                     id.to_string(),
                     new.sender,
                     new.subject,
                     new.body,
-                    created_at
+                    created_at,
+                    parent
                 ],
             )
             .context("cannot store the Message")?;
@@ -82,12 +89,31 @@ impl Inbox {
         Ok(id)
     }
 
-    /// The Message whose full id is `id`.
+    /// The full id of the one Message whose id starts with `prefix` (ADR 0001); fails when no
+    /// Message or several do, listing the several.
+    fn resolve(&self, prefix: &str) -> Result<String> {
+        let mut statement = self.connection.prepare(
+            "SELECT id FROM messages WHERE substr(id, 1, length(?1)) = ?1 ORDER BY arrival",
+        )?;
+        let mut matches = statement
+            .query_map([prefix], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        match matches.len() {
+            0 => bail!("no Message has the id {prefix}"),
+            1 => Ok(matches.remove(0)),
+            _ => bail!(
+                "the id prefix {prefix} matches several Messages:\n{}",
+                matches.join("\n")
+            ),
+        }
+    }
+
+    /// The Message whose id is `id` or starts with it.
     pub fn show(&self, id: &str) -> Result<Message> {
-        let row = self
-            .connection
-            .query_row(
-                "SELECT arrival, id, sender, subject, body, created_at
+        let id = self.resolve(id)?;
+        let (arrival, stored_id, sender, subject, body, created_at, parent) =
+            self.connection.query_row(
+                "SELECT arrival, id, sender, subject, body, created_at, parent
                  FROM messages WHERE id = ?1",
                 [id],
                 |row| {
@@ -98,13 +124,10 @@ impl Inbox {
                         row.get::<_, String>(3)?,
                         row.get::<_, Option<String>>(4)?,
                         row.get::<_, String>(5)?,
+                        row.get::<_, Option<String>>(6)?,
                     ))
                 },
-            )
-            .optional()?;
-        let Some((arrival, stored_id, sender, subject, body, created_at)) = row else {
-            bail!("no Message has the id {id}");
-        };
+            )?;
         let mut statement = self
             .connection
             .prepare("SELECT name FROM receivers WHERE arrival = ?1 ORDER BY position")?;
@@ -119,6 +142,13 @@ impl Inbox {
             receivers,
             subject,
             body,
+            parent: parent
+                .map(|parent| {
+                    parent
+                        .parse()
+                        .with_context(|| format!("the Inbox holds a malformed parent {parent}"))
+                })
+                .transpose()?,
             created_at: DateTime::parse_from_rfc3339(&created_at)
                 .with_context(|| format!("the Inbox holds a malformed time {created_at}"))?
                 .with_timezone(&Utc),
