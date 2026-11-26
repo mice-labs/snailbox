@@ -1,6 +1,7 @@
-//! `create` rejects a Message missing its Sender, Receiver or subject, takes its body from
-//! `--body`, `--body-file` or `--stdin` (at most one), and refuses an empty body file or
-//! standard input. Each test runs the built binary against its own temporary `SNAILBOX_HOME`.
+//! `create` rejects a Message missing its Sender, Receiver or subject, or giving one of them a
+//! blank name, takes its body from `--body`, `--body-file` or `--stdin` (at most one), and
+//! refuses an empty or blank body file or standard input. Each test runs the built binary
+//! against its own temporary `SNAILBOX_HOME`.
 
 mod common;
 
@@ -8,7 +9,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Output, Stdio};
 
-use common::{command_in, create, snailbox, stderr, stdout, TempFolder};
+use common::{command_in, create, stderr, stdout, TempFolder};
 use serde_json::Value;
 
 /// Asserts that `output` is a failure with nothing on standard output and `expected` in the
@@ -23,9 +24,18 @@ fn assert_rejected(output: &Output, expected: &str) {
     );
 }
 
-/// Runs the binary with `args` and `input` on standard input.
-fn create_with_stdin(home: &Path, args: &[&str], input: &[u8]) -> Output {
+/// Asserts that the error text tells the caller where to look next: the usage line and the
+/// `--help` pointer.
+fn assert_says_what_to_do_next(output: &Output) {
+    let error = stderr(output);
+    assert!(error.contains("Usage:"), "stderr lacks Usage: {error}");
+    assert!(error.contains("--help"), "stderr lacks --help: {error}");
+}
+
+/// Runs `snailbox create` with `args` and `input` on standard input.
+fn run_create(home: &Path, args: &[&str], input: &[u8]) -> Output {
     let mut child = command_in(home)
+        .arg("create")
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -38,13 +48,14 @@ fn create_with_stdin(home: &Path, args: &[&str], input: &[u8]) -> Output {
 }
 
 fn shown_json(home: &Path, id: &str) -> Value {
-    let output = snailbox(home, &["show", id, "--json"]);
+    let output = common::snailbox(home, &["show", id, "--json"]);
     assert!(output.status.success(), "show failed: {}", stderr(&output));
     serde_json::from_str(&stdout(&output)).expect("show --json prints JSON")
 }
 
 const REQUIRED: [&str; 6] = ["--from", "alice", "--to", "bob", "--subject", "hi"];
 
+/// The required flags without `flag` and its value.
 fn without(flag: &str) -> Vec<&'static str> {
     let at = REQUIRED
         .iter()
@@ -55,22 +66,19 @@ fn without(flag: &str) -> Vec<&'static str> {
     args
 }
 
-fn create_args<'a>(extra: &[&'a str]) -> Vec<&'a str> {
-    let mut args = vec!["create"];
-    args.extend(REQUIRED);
-    args.extend(extra);
-    args
+/// The required flags followed by `extra`.
+fn with<'a>(extra: &[&'a str]) -> Vec<&'a str> {
+    [&REQUIRED[..], extra].concat()
 }
 
 #[test]
-fn create_without_from_fails_and_names_the_flag() {
+fn create_without_from_fails_and_says_what_to_do_next() {
     let home = TempFolder::new("no-from");
-    let mut args = vec!["create"];
-    args.extend(without("--from"));
 
-    let output = snailbox(home.path(), &args);
+    let output = run_create(home.path(), &without("--from"), b"");
 
     assert_rejected(&output, "--from");
+    assert_says_what_to_do_next(&output);
 }
 
 #[test]
@@ -88,25 +96,45 @@ fn create_without_from_ignores_the_operating_system_user() {
 }
 
 #[test]
-fn create_without_to_fails_and_names_the_flag() {
+fn create_without_to_fails_and_says_what_to_do_next() {
     let home = TempFolder::new("no-to");
-    let mut args = vec!["create"];
-    args.extend(without("--to"));
 
-    let output = snailbox(home.path(), &args);
+    let output = run_create(home.path(), &without("--to"), b"");
 
     assert_rejected(&output, "--to");
+    assert_says_what_to_do_next(&output);
 }
 
 #[test]
-fn create_without_subject_fails_and_names_the_flag() {
+fn create_without_subject_fails_and_says_what_to_do_next() {
     let home = TempFolder::new("no-subject");
-    let mut args = vec!["create"];
-    args.extend(without("--subject"));
 
-    let output = snailbox(home.path(), &args);
+    let output = run_create(home.path(), &without("--subject"), b"");
 
     assert_rejected(&output, "--subject");
+    assert_says_what_to_do_next(&output);
+}
+
+#[test]
+fn create_rejects_a_blank_sender_or_receiver() {
+    let home = TempFolder::new("blank-name");
+    let cases: [(&str, [&str; 6]); 4] = [
+        ("--from", ["--from", "", "--to", "bob", "--subject", "hi"]),
+        ("--from", ["--from", "  ", "--to", "bob", "--subject", "hi"]),
+        ("--to", ["--from", "alice", "--to", "", "--subject", "hi"]),
+        (
+            "--to",
+            ["--from", "alice", "--to", " \t", "--subject", "hi"],
+        ),
+    ];
+
+    for (flag, args) in cases {
+        let output = run_create(home.path(), &args, b"");
+
+        assert_rejected(&output, flag);
+        assert_rejected(&output, "the name is blank; give a name");
+        assert_rejected(&output, "--help");
+    }
 }
 
 #[test]
@@ -118,7 +146,7 @@ fn create_takes_the_body_from_a_file_verbatim() {
 
     let id = create(
         home.path(),
-        &create_args(&["--body-file", file.to_str().expect("the path is UTF-8")])[1..],
+        &with(&["--body-file", file.to_str().expect("the path is UTF-8")]),
     );
 
     assert_eq!(
@@ -131,9 +159,9 @@ fn create_takes_the_body_from_a_file_verbatim() {
 fn create_takes_the_body_from_standard_input() {
     let home = TempFolder::new("body-stdin");
 
-    let output = create_with_stdin(
+    let output = run_create(
         home.path(),
-        &create_args(&["--stdin"]),
+        &with(&["--stdin"]),
         b"piped text\nsecond line\n",
     );
 
@@ -153,7 +181,7 @@ fn create_takes_the_body_from_standard_input() {
 fn create_without_a_body_source_stores_no_body() {
     let home = TempFolder::new("no-body");
 
-    let id = create(home.path(), &create_args(&[])[1..]);
+    let id = create(home.path(), &with(&[]));
 
     assert!(shown_json(home.path(), &id)["body"].is_null());
 }
@@ -172,7 +200,7 @@ fn create_rejects_two_body_sources() {
     ];
 
     for extra in cases {
-        let output = create_with_stdin(home.path(), &create_args(extra), b"piped");
+        let output = run_create(home.path(), &with(extra), b"piped");
 
         assert_rejected(&output, "cannot be used with");
     }
@@ -185,39 +213,57 @@ fn create_rejects_an_empty_body_file() {
     let file = scratch.path().join("body.txt");
     std::fs::write(&file, "").expect("the file is written");
 
-    let output = snailbox(
+    let output = run_create(
         home.path(),
-        &create_args(&["--body-file", file.to_str().expect("the path is UTF-8")]),
+        &with(&["--body-file", file.to_str().expect("the path is UTF-8")]),
+        b"",
     );
 
-    assert_rejected(&output, "is empty");
+    assert_rejected(&output, "is empty or blank");
+}
+
+#[test]
+fn create_rejects_a_body_file_of_only_whitespace() {
+    let home = TempFolder::new("blank-file");
+    let scratch = TempFolder::new("blank-file-source");
+    let file = scratch.path().join("body.txt");
+    std::fs::write(&file, "\n \t\n").expect("the file is written");
+
+    let output = run_create(
+        home.path(),
+        &with(&["--body-file", file.to_str().expect("the path is UTF-8")]),
+        b"",
+    );
+
+    assert_rejected(&output, "is empty or blank");
 }
 
 #[test]
 fn create_rejects_empty_standard_input() {
     let home = TempFolder::new("empty-stdin");
 
-    let output = create_with_stdin(home.path(), &create_args(&["--stdin"]), b"");
+    let output = run_create(home.path(), &with(&["--stdin"]), b"");
 
-    assert_rejected(&output, "standard input is empty");
+    assert_rejected(&output, "standard input is empty or blank");
 }
 
 #[test]
 fn create_rejects_standard_input_of_only_whitespace() {
     let home = TempFolder::new("blank-stdin");
 
-    let output = create_with_stdin(home.path(), &create_args(&["--stdin"]), b"\n \t\n");
+    let output = run_create(home.path(), &with(&["--stdin"]), b"\n \t\n");
 
-    assert_rejected(&output, "standard input is empty");
+    assert_rejected(&output, "standard input is empty or blank");
 }
 
 #[test]
 fn create_rejects_a_missing_body_file_and_says_which() {
     let home = TempFolder::new("missing-file");
 
-    let output = snailbox(
+    let output = run_create(
         home.path(),
-        &create_args(&["--body-file", "/nonexistent/snailbox-body.txt"]),
+        &with(&["--body-file", "/nonexistent/snailbox-body.txt"]),
+        b"",
     );
 
     assert_rejected(&output, "/nonexistent/snailbox-body.txt");
@@ -229,10 +275,9 @@ fn create_keeps_a_long_subject_and_body_whole() {
     let subject = "s".repeat(100_000);
     let body = "b".repeat(1_000_000);
 
-    let output = create_with_stdin(
+    let output = run_create(
         home.path(),
         &[
-            "create",
             "--from",
             "alice",
             "--to",
