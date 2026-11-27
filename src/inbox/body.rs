@@ -1,4 +1,5 @@
-//! Where `create` takes a Message's body from.
+//! Where `create` takes a Message's body from, and the rules on it: at most one source, and a
+//! file or standard input that is not blank.
 
 use std::io::Read;
 use std::path::PathBuf;
@@ -12,20 +13,51 @@ pub enum BodySource {
     Stdin,
 }
 
+/// Two Body source flags were given; a Message has at most one.
+#[derive(Debug)]
+pub struct BodyConflict {
+    pub first: &'static str,
+    pub second: &'static str,
+}
+
+impl std::fmt::Display for BodyConflict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "the argument '{}' cannot be used with '{}'",
+            self.first, self.second
+        )
+    }
+}
+
+impl std::error::Error for BodyConflict {}
+
 impl BodySource {
     /// The source the caller's `--body`, `--body-file` and `--stdin` flags name, or `None` when
-    /// they name none. The command line allows at most one of them, so the order here only
-    /// settles what cannot happen.
+    /// they name none. Naming more than one is an error, which names the first two in flag
+    /// order.
     pub fn from_flags(
         body: Option<String>,
         body_file: Option<PathBuf>,
         stdin: bool,
-    ) -> Option<Self> {
-        match (body, body_file, stdin) {
-            (Some(text), _, _) => Some(Self::Text(text)),
-            (None, Some(path), _) => Some(Self::File(path)),
-            (None, None, true) => Some(Self::Stdin),
-            (None, None, false) => None,
+    ) -> Result<Option<Self>, BodyConflict> {
+        let mut given = Vec::new();
+        let mut source = None;
+        if let Some(text) = body {
+            given.push("--body");
+            source = Some(Self::Text(text));
+        }
+        if let Some(path) = body_file {
+            given.push("--body-file");
+            source = Some(Self::File(path));
+        }
+        if stdin {
+            given.push("--stdin");
+            source = Some(Self::Stdin);
+        }
+        match given[..] {
+            [first, second, ..] => Err(BodyConflict { first, second }),
+            _ => Ok(source),
         }
     }
 

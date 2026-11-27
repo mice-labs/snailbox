@@ -12,6 +12,9 @@ use crate::listing::{Cursor, LeftOut, Listing};
 use crate::location;
 use crate::message::{IdPrefix, Message, MessageId, NewMessage};
 
+mod body;
+pub use body::BodySource;
+
 const DATABASE_FILE: &str = "inbox.sqlite3";
 
 // Several agents may write to one Inbox at once, each in its own process; SQLite lets one
@@ -134,7 +137,7 @@ impl Inbox {
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![
                     id.to_string(),
-                    new.sender,
+                    new.sender.as_str(),
                     new.subject,
                     new.body,
                     created_at,
@@ -143,8 +146,13 @@ impl Inbox {
             )
             .context("cannot store the Message")?;
         let seq = transaction.last_insert_rowid();
-        let receivers =
-            serde_json::to_string(&new.receivers).context("cannot store the Message")?;
+        let receivers = serde_json::to_string(
+            &new.receivers
+                .iter()
+                .map(crate::message::Name::as_str)
+                .collect::<Vec<_>>(),
+        )
+        .context("cannot store the Message")?;
         transaction
             .execute(INSERT_RECEIVERS_SQL, params![seq, receivers])
             .context("cannot store the Message")?;
@@ -217,7 +225,7 @@ impl Inbox {
             upthread,
             downthread,
             thread,
-            filter.limit.map(NonZeroUsize::get),
+            filter.limit.get().map(NonZeroUsize::get),
         ])?;
         let mut matched = 0;
         let mut messages = Vec::new();
@@ -325,8 +333,41 @@ pub struct ListFilter {
     /// Matches only the Message with this id or prefix with everything upthread and downthread
     /// of it.
     pub thread: Option<IdPrefix>,
-    /// The most Messages to return; `None` returns every match.
-    pub limit: Option<NonZeroUsize>,
+    /// The most Messages to return.
+    pub limit: Limit,
+}
+
+/// The most Messages a `list` returns: 50 unless the caller says otherwise, and 0 for no limit.
+#[derive(Clone, Copy, Debug)]
+pub struct Limit(usize);
+
+impl Limit {
+    const DEFAULT: usize = 50;
+
+    /// The limit as a count, or `None` for no limit.
+    fn get(self) -> Option<NonZeroUsize> {
+        NonZeroUsize::new(self.0)
+    }
+}
+
+impl Default for Limit {
+    fn default() -> Self {
+        Self(Self::DEFAULT)
+    }
+}
+
+impl std::fmt::Display for Limit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl std::str::FromStr for Limit {
+    type Err = std::num::ParseIntError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        text.parse().map(Self)
+    }
 }
 
 /// Prepends the SELECT that reads a whole Message, its Receivers aggregated in position order
@@ -415,6 +456,135 @@ macro_rules! list_sql {
 
 const LIST_OLDEST_SQL: &str = list_sql!("ASC");
 const LIST_NEWEST_SQL: &str = list_sql!("DESC");
+
+// These tests pin the rules the Inbox module decides for the command-line layer: the default
+// limit, the blank name and the one Body source with a non-blank body. They go through the
+// module's public types, never the command line.
+#[cfg(test)]
+mod rule_tests {
+    use super::*;
+
+    fn temp_inbox(name: &str) -> (std::path::PathBuf, Inbox) {
+        let folder = std::env::temp_dir().join(format!("snailbox-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        let inbox = Inbox::open(&folder).expect("the Inbox opens");
+        (folder, inbox)
+    }
+
+    fn name(text: &str) -> crate::message::Name {
+        text.parse().expect("the name is not blank")
+    }
+
+    fn unfiltered(limit: Limit) -> ListFilter {
+        ListFilter {
+            to: None,
+            from: None,
+            after: None,
+            before: None,
+            upthread: None,
+            downthread: None,
+            thread: None,
+            limit,
+        }
+    }
+
+    fn store(inbox: &mut Inbox, count: usize) {
+        for _ in 0..count {
+            inbox
+                .create(&NewMessage {
+                    sender: name("alice"),
+                    receivers: vec![name("bob")],
+                    subject: "hi".to_owned(),
+                    body: None,
+                    reply_to: None,
+                })
+                .expect("the Message is stored");
+        }
+    }
+
+    #[test]
+    fn a_listing_without_a_limit_keeps_the_most_recent_fifty() {
+        let (folder, mut inbox) = temp_inbox("default-limit");
+        store(&mut inbox, 52);
+
+        let listing = inbox.list(&unfiltered(Limit::default())).expect("lists");
+
+        assert_eq!(listing.messages.len(), 50);
+        assert_eq!(listing.left_out.expect("two were left out").count, 2);
+        let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn a_limit_of_zero_removes_the_limit() {
+        let (folder, mut inbox) = temp_inbox("zero-limit");
+        store(&mut inbox, 52);
+
+        let listing = inbox
+            .list(&unfiltered("0".parse().expect("0 is a limit")))
+            .expect("lists");
+
+        assert_eq!(listing.messages.len(), 52);
+        assert!(listing.left_out.is_none());
+        let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn a_limit_that_is_not_a_number_is_refused() {
+        assert!("many".parse::<Limit>().is_err());
+    }
+
+    #[test]
+    fn a_blank_name_is_refused() {
+        for blank in ["", "  ", " \t"] {
+            let error = blank.parse::<crate::message::Name>().err();
+            assert_eq!(
+                error.as_deref(),
+                Some("the name is blank; give a name"),
+                "for {blank:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_name_is_kept_as_given() {
+        assert_eq!(name(" alice ").as_str(), " alice ");
+    }
+
+    #[test]
+    fn more_than_one_body_source_is_refused() {
+        let file = Some(std::path::PathBuf::from("body.txt"));
+        let cases = [
+            (Some("a".to_owned()), file.clone(), false),
+            (Some("a".to_owned()), None, true),
+            (None, file, true),
+        ];
+
+        for (text, file, stdin) in cases {
+            let result = BodySource::from_flags(text, file, stdin);
+
+            assert!(result.is_err(), "more than one source was accepted");
+        }
+    }
+
+    #[test]
+    fn no_body_source_means_no_body() {
+        assert!(matches!(BodySource::from_flags(None, None, false), Ok(None)));
+    }
+
+    #[test]
+    fn a_body_file_of_only_whitespace_is_refused() {
+        let file = std::env::temp_dir().join(format!("snailbox-blank-{}", std::process::id()));
+        std::fs::write(&file, "\n \t\n").expect("the file is written");
+
+        let source = BodySource::from_flags(None, Some(file.clone()), false)
+            .expect("one source")
+            .expect("a source");
+        let error = source.read().expect_err("the body is blank");
+
+        assert!(error.to_string().contains("is empty or blank"), "{error}");
+        let _ = std::fs::remove_file(file);
+    }
+}
 
 // These tests pin the guarantee that an Inbox refuses a row whose REFERENCES name nothing, not
 // the foreign_keys pragma Inbox::open sets: on rusqlite's `bundled` build, which defaults the

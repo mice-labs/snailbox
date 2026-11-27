@@ -1,20 +1,18 @@
-mod body;
 mod inbox;
 mod listing;
 mod location;
 mod message;
 
-use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::error::ErrorKind;
+use clap::{CommandFactory, Parser, Subcommand};
 
-use body::BodySource;
-use inbox::{IdArgument, Inbox, ListFilter, NoMessageFor};
+use inbox::{BodySource, IdArgument, Inbox, Limit, ListFilter, NoMessageFor};
 use listing::{AFTER_FLAG, BEFORE_FLAG};
-use message::{IdPrefix, NewMessage};
+use message::{IdPrefix, Name, NewMessage};
 
 #[derive(Parser)]
 #[command(
@@ -31,19 +29,19 @@ enum Command {
     /// Store a Message and print its id
     Create {
         /// The Sender's name
-        #[arg(long, value_parser = name)]
-        from: String,
+        #[arg(long, value_parser = str::parse::<Name>)]
+        from: Name,
         /// A Receiver's name; repeat for each Receiver
-        #[arg(long, required = true, value_parser = name)]
-        to: Vec<String>,
+        #[arg(long, required = true, value_parser = str::parse::<Name>)]
+        to: Vec<Name>,
         /// The Message's subject
         #[arg(long)]
         subject: String,
         /// The Message's body, given as text; without a Body source the Message has none
-        #[arg(long, conflicts_with_all = ["body_file", "stdin"])]
+        #[arg(long)]
         body: Option<String>,
         /// Take the body from this file, which must not be empty
-        #[arg(long, conflicts_with = "stdin")]
+        #[arg(long)]
         body_file: Option<PathBuf>,
         /// Take the body from standard input, which must not be empty
         #[arg(long)]
@@ -87,8 +85,8 @@ enum Command {
         thread: Option<IdPrefix>,
         /// Return at most this many Messages, 0 for no limit: the first n after --after, else
         /// the last n before --before (alone), else the most recent n
-        #[arg(long, value_name = "N", default_value_t = 50)]
-        limit: usize,
+        #[arg(long, value_name = "N", default_value_t)]
+        limit: Limit,
         /// Print one JSON object: `messages` (each with id, creation time, Sender, Receivers
         /// and subject, as in the text; no body or parent, which `show --json` has),
         /// `left_out` (how many the limit left out, 0 for none) and `next` (the flag and id
@@ -105,14 +103,6 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-}
-
-/// A Sender's or Receiver's name, which must hold something other than whitespace.
-fn name(text: &str) -> Result<String, String> {
-    if text.trim().is_empty() {
-        return Err("the name is blank; give a name".to_owned());
-    }
-    Ok(text.to_owned())
 }
 
 /// Adds to a no-match error from an argument or flag that takes a Message id the hint that it
@@ -164,6 +154,13 @@ fn run(command: Command) -> Result<()> {
             reply_to,
         } => {
             let body = BodySource::from_flags(body, body_file, stdin)
+                .unwrap_or_else(|conflict| {
+                    Cli::command()
+                        .find_subcommand_mut("create")
+                        .expect("create is a subcommand")
+                        .error(ErrorKind::ArgumentConflict, conflict)
+                        .exit()
+                })
                 .map(BodySource::read)
                 .transpose()?;
             let mut inbox = Inbox::open(&location::inbox_folder()?)?;
@@ -198,7 +195,7 @@ fn run(command: Command) -> Result<()> {
                 upthread,
                 downthread,
                 thread,
-                limit: NonZeroUsize::new(limit),
+                limit,
             };
             let listing = inbox.list(&filter).map_err(hint_id_error)?;
             if json {
