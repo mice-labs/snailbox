@@ -158,7 +158,7 @@ impl Inbox {
         let mut statement = self.connection.prepare(RESOLVE_ID_SQL)?;
         let ids = statement
             .query_map([prefix.as_str()], |row| row.get::<_, String>("id"))?
-            .map(|id| stored_id(&id?))
+            .map(|id| stored_id("id", &id?))
             .collect::<Result<Vec<MessageId>>>()?;
         one_of(prefix, ids, MessageId::to_string)
     }
@@ -269,27 +269,25 @@ fn message_from_row(row: &Row<'_>) -> Result<Message> {
     let parent: Option<String> = row.get("parent")?;
     let receivers: String = row.get("receivers")?;
     Ok(Message {
-        id: stored_id(&id)?,
+        id: stored_id("id", &id)?,
         sender: row.get("sender")?,
         receivers: serde_json::from_str(&receivers)
             .with_context(|| format!("the Inbox holds malformed Receivers {receivers}"))?,
         subject: row.get("subject")?,
         body: row.get("body")?,
         parent: parent
-            .map(|parent| {
-                parent
-                    .parse()
-                    .with_context(|| format!("the Inbox holds a malformed parent {parent}"))
-            })
+            .map(|parent| stored_id("parent", &parent))
             .transpose()?,
         created_at: created_at_from_row(row)?,
     })
 }
 
-/// The Message id stored as `id`; fails, quoting it, when it is not one.
-fn stored_id(id: &str) -> Result<MessageId> {
-    id.parse()
-        .with_context(|| format!("the Inbox holds a malformed id {id}"))
+/// The Message id the `column` column stores as `stored`; fails, naming the column and quoting
+/// the text, when it is not one.
+fn stored_id(column: &str, stored: &str) -> Result<MessageId> {
+    stored
+        .parse()
+        .with_context(|| format!("the Inbox holds a malformed {column} {stored}"))
 }
 
 /// The row's creation time, read as strict RFC 3339; a stored text that is not one fails with
