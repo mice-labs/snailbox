@@ -148,11 +148,9 @@ impl Inbox {
     /// several do, listing the several.
     fn resolve(&self, prefix: &IdPrefix) -> Result<Message> {
         let mut statement = self.connection.prepare(RESOLVE_SQL)?;
-        let mut rows = statement.query([prefix.as_str()])?;
-        let mut matches = Vec::new();
-        while let Some(row) = rows.next()? {
-            matches.push(message_from_row(row)?);
-        }
+        let matches = statement
+            .query_and_then([prefix.as_str()], message_from_row)?
+            .collect::<Result<Vec<Message>>>()?;
         one_of(prefix, matches, |message| message.id.to_string())
     }
 
