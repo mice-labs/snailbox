@@ -146,9 +146,8 @@ impl Inbox {
             )
             .context("cannot store the Message")?;
         let seq = transaction.last_insert_rowid();
-        let receivers =
-            serde_json::to_string(&new.receivers.iter().map(Name::as_str).collect::<Vec<_>>())
-                .context("cannot store the Message")?;
+        let receivers = serde_json::to_string(&Name::all_as_str(&new.receivers))
+            .context("cannot store the Message")?;
         transaction
             .execute(INSERT_RECEIVERS_SQL, params![seq, receivers])
             .context("cannot store the Message")?;
@@ -276,9 +275,9 @@ fn named_by<T>(result: Result<T>, argument: IdArgument) -> Result<T> {
 fn message_from_row(row: &Row<'_>) -> Result<Message> {
     let id: String = row.get("id")?;
     let parent: Option<String> = row.get("parent")?;
-    let receivers: String = row.get("receivers")?;
-    let receivers: Vec<String> = serde_json::from_str(&receivers)
-        .with_context(|| format!("the Inbox holds malformed Receivers {receivers}"))?;
+    let receivers_json: String = row.get("receivers")?;
+    let receivers: Vec<String> = serde_json::from_str(&receivers_json)
+        .with_context(|| format!("the Inbox holds malformed Receivers {receivers_json}"))?;
     Ok(Message {
         id: stored_id("id", &id)?,
         sender: Name::stored(row.get("sender")?),

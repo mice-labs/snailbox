@@ -73,6 +73,11 @@ impl Name {
         &self.0
     }
 
+    /// The text of each of `names`, in order.
+    pub fn all_as_str(names: &[Name]) -> Vec<&str> {
+        names.iter().map(Name::as_str).collect()
+    }
+
     /// A name read back from the Inbox: it passed the blank check on the way in, so it is
     /// not checked again and a read never fails on it.
     pub fn stored(text: String) -> Self {
@@ -136,12 +141,8 @@ impl Message {
         let mut text = format!(
             "Id:       {}\nFrom:     {}\nTo:       {}\nSubject:  {}\n{parent}Created:  {created}\n",
             self.id,
-            self.sender,
-            self.receivers
-                .iter()
-                .map(Name::as_str)
-                .collect::<Vec<_>>()
-                .join(", "),
+            self.sender.as_str(),
+            Name::all_as_str(&self.receivers).join(", "),
             self.subject,
         );
         if let Some(body) = &self.body {
@@ -198,7 +199,7 @@ impl Message {
         serde_json::json!({
             "id": self.id.to_string(),
             "from": self.sender.as_str(),
-            "to": self.receivers.iter().map(Name::as_str).collect::<Vec<_>>(),
+            "to": Name::all_as_str(&self.receivers),
             "subject": self.subject,
             "created_at": self.created_at.to_rfc3339_opts(SecondsFormat::Secs, true),
         })
