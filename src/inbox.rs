@@ -135,20 +135,12 @@ impl Inbox {
             .execute(
                 "INSERT INTO messages (id, sender, subject, body, created_at, parent)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![
-                    id.to_string(),
-                    new.sender.as_str(),
-                    new.subject,
-                    new.body,
-                    created_at,
-                    parent
-                ],
+                params![id, new.sender, new.subject, new.body, created_at, parent],
             )
             .context("cannot store the Message")?;
         let seq = transaction.last_insert_rowid();
         let receivers =
-            serde_json::to_string(&new.receivers.iter().map(Name::as_str).collect::<Vec<_>>())
-                .context("cannot store the Message")?;
+            serde_json::to_string(&new.receivers).context("cannot store the Message")?;
         transaction
             .execute(INSERT_RECEIVERS_SQL, params![seq, receivers])
             .context("cannot store the Message")?;
@@ -171,9 +163,8 @@ impl Inbox {
     fn resolve_id(&self, prefix: &IdPrefix) -> Result<MessageId> {
         let mut statement = self.connection.prepare(RESOLVE_ID_SQL)?;
         let ids = statement
-            .query_map([prefix.as_str()], |row| row.get::<_, String>("id"))?
-            .map(|id| stored_id("id", &id?))
-            .collect::<Result<Vec<MessageId>>>()?;
+            .query_map([prefix.as_str()], |row| row.get("id"))?
+            .collect::<rusqlite::Result<Vec<MessageId>>>()?;
         one_of(prefix, ids, MessageId::to_string)
     }
 
@@ -183,10 +174,10 @@ impl Inbox {
         &self,
         prefix: &Option<IdPrefix>,
         argument: IdArgument,
-    ) -> Result<Option<String>> {
+    ) -> Result<Option<MessageId>> {
         prefix
             .as_ref()
-            .map(|prefix| named_by(self.resolve_id(prefix), argument).map(|id| id.to_string()))
+            .map(|prefix| named_by(self.resolve_id(prefix), argument))
             .transpose()
     }
 
@@ -274,29 +265,18 @@ fn named_by<T>(result: Result<T>, argument: IdArgument) -> Result<T> {
 /// The Message a row of `select_message!` holds, its Receivers read from the JSON array the
 /// query aggregates.
 fn message_from_row(row: &Row<'_>) -> Result<Message> {
-    let id: String = row.get("id")?;
-    let parent: Option<String> = row.get("parent")?;
-    let receivers: String = row.get("receivers")?;
+    let receivers_json: String = row.get("receivers")?;
+    let receivers: Vec<Name> = serde_json::from_str(&receivers_json)
+        .with_context(|| format!("the Inbox holds malformed Receivers {receivers_json}"))?;
     Ok(Message {
-        id: stored_id("id", &id)?,
+        id: row.get("id")?,
         sender: row.get("sender")?,
-        receivers: serde_json::from_str(&receivers)
-            .with_context(|| format!("the Inbox holds malformed Receivers {receivers}"))?,
+        receivers,
         subject: row.get("subject")?,
         body: row.get("body")?,
-        parent: parent
-            .map(|parent| stored_id("parent", &parent))
-            .transpose()?,
+        parent: row.get("parent")?,
         created_at: created_at_from_row(row)?,
     })
-}
-
-/// The Message id the `column` column stores as `stored`; fails, naming the column and quoting
-/// the text, when it is not one.
-fn stored_id(column: &str, stored: &str) -> Result<MessageId> {
-    stored
-        .parse()
-        .with_context(|| format!("the Inbox holds a malformed {column} {stored}"))
 }
 
 /// The row's creation time, read as strict RFC 3339; a stored text that is not one fails with
