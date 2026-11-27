@@ -1,9 +1,11 @@
 //! The Inbox's database file as a release before this one left it: an Inbox written with the
 //! schema that had no indexes still opens and lists, and gains the indexes on that open, and
 //! still shows a Message's body and parent; and a stored creation time that is not an RFC 3339
-//! time, one with no offset included, fails `show` and `list` with an error saying so.
+//! time, one with no offset included, fails `show` and `list` with an error saying so; and a
+//! stored id that is not a Message id fails `show` and `create --reply-to` with an error saying so.
 //! These tests write the database file directly, since the command line cannot produce an
-//! index-less Inbox or a malformed time; everything they check is the built binary's output,
+//! index-less Inbox, a malformed time or a malformed id; everything they check is the built
+//! binary's output,
 //! apart from the index names, which only the file shows.
 
 mod common;
@@ -167,4 +169,43 @@ fn a_malformed_creation_time_fails_show_and_list_saying_so() {
 #[test]
 fn a_creation_time_without_an_offset_is_malformed() {
     assert_show_and_list_reject_time("file-naive-time", "2026-11-26 01:02:03");
+}
+
+#[test]
+fn a_malformed_stored_id_fails_show_and_reply_to_saying_so() {
+    let home = TempFolder::new("file-malformed-id");
+    let connection =
+        Connection::open(database(home.path())).expect("the test can create the Inbox");
+    connection
+        .execute_batch(SCHEMA_WITHOUT_INDEXES)
+        .expect("the schema applies");
+    connection
+        .execute_batch(
+            "INSERT INTO messages (id, sender, subject, body, created_at, parent) VALUES
+                 ('not-an-id', 'alice', 'root', NULL, '2026-11-26T01:02:03Z', NULL);",
+        )
+        .expect("the row inserts");
+
+    let reply = [
+        "create",
+        "--from",
+        "bob",
+        "--to",
+        "alice",
+        "--subject",
+        "re",
+        "--reply-to",
+        "not",
+    ];
+    for args in [&["show", "not"][..], &reply[..]] {
+        let output = snailbox(home.path(), args);
+
+        assert!(!output.status.success(), "{args:?} succeeded");
+        assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
+        assert!(
+            stderr(&output).starts_with("snailbox: the Inbox holds a malformed id not-an-id: "),
+            "{args:?} stderr was {}",
+            stderr(&output)
+        );
+    }
 }

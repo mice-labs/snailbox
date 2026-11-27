@@ -154,37 +154,28 @@ impl Inbox {
 
     /// `resolve` for the id alone, read by `RESOLVE_ID_SQL`, which loads no Message body or
     /// Receiver.
-    fn resolve_id(&self, prefix: &IdPrefix) -> Result<String> {
+    fn resolve_id(&self, prefix: &IdPrefix) -> Result<MessageId> {
         let mut statement = self.connection.prepare(RESOLVE_ID_SQL)?;
         let ids = statement
-            .query_map([prefix.as_str()], |row| row.get("id"))?
-            .collect::<rusqlite::Result<Vec<String>>>()?;
-        one_of(prefix, ids, |id| id.clone())
-    }
-
-    /// `resolve` for an id input, whose no-match error names `input`.
-    fn resolve_input(&self, prefix: &IdPrefix, input: IdInput) -> Result<Message> {
-        named_by(self.resolve(prefix), input)
-    }
-
-    /// `resolve_id` for an id input, whose no-match error names `input`.
-    fn resolve_id_input(&self, prefix: &IdPrefix, input: IdInput) -> Result<String> {
-        named_by(self.resolve_id(prefix), input)
+            .query_map([prefix.as_str()], |row| row.get::<_, String>("id"))?
+            .map(|id| stored_id(&id?))
+            .collect::<Result<Vec<MessageId>>>()?;
+        one_of(prefix, ids, MessageId::to_string)
     }
 
     /// The full id of the Message `prefix` names, or none when there is no `prefix`; fails as
-    /// `resolve_id_input` does when no Message matches.
+    /// `resolve_id` does, its no-match error naming `input`.
     fn full_id_of(&self, prefix: &Option<IdPrefix>, input: IdInput) -> Result<Option<String>> {
         prefix
             .as_ref()
-            .map(|prefix| self.resolve_id_input(prefix, input))
+            .map(|prefix| named_by(self.resolve_id(prefix), input).map(|id| id.to_string()))
             .transpose()
     }
 
     /// The Message whose id is, or is the only one to start with, `prefix`; fails when no
     /// Message does or several do.
     pub fn show(&self, prefix: &IdPrefix) -> Result<Message> {
-        self.resolve_input(prefix, IdInput::Show)
+        named_by(self.resolve(prefix), IdInput::Show)
     }
 
     /// The Messages matching `filter`, in the order this Inbox stored them, oldest first
@@ -278,9 +269,7 @@ fn message_from_row(row: &Row<'_>) -> Result<Message> {
     let parent: Option<String> = row.get("parent")?;
     let receivers: String = row.get("receivers")?;
     Ok(Message {
-        id: id
-            .parse()
-            .with_context(|| format!("the Inbox holds a malformed id {id}"))?,
+        id: stored_id(&id)?,
         sender: row.get("sender")?,
         receivers: serde_json::from_str(&receivers)
             .with_context(|| format!("the Inbox holds malformed Receivers {receivers}"))?,
@@ -295,6 +284,12 @@ fn message_from_row(row: &Row<'_>) -> Result<Message> {
             .transpose()?,
         created_at: created_at_from_row(row)?,
     })
+}
+
+/// The Message id stored as `id`; fails, quoting it, when it is not one.
+fn stored_id(id: &str) -> Result<MessageId> {
+    id.parse()
+        .with_context(|| format!("the Inbox holds a malformed id {id}"))
 }
 
 /// The row's creation time, read as strict RFC 3339; a stored text that is not one fails with
@@ -338,7 +333,7 @@ pub struct ListFilter {
 /// SQLite; linked against an older system SQLite the query would fail to prepare. `format!`
 /// cannot build a const, so the join is `concat!`, which takes literals only.
 macro_rules! select_message {
-    ($tail:literal) => {
+    ($tail:expr) => {
         concat!(
             "SELECT messages.id, messages.sender, messages.subject, messages.body, ",
             "messages.created_at, messages.parent, ",
@@ -359,12 +354,15 @@ const INSERT_RECEIVERS_SQL: &str = "INSERT INTO receivers (seq, position, name)
 // BINARY collation id has (SCHEMA gives it no other), U+10FFFF sorts after every character an
 // id holds, so the range ends past every id with the prefix; a collation that ordered
 // otherwise would need another upper bound.
-const RESOLVE_SQL: &str =
-    select_message!("FROM messages WHERE id >= ?1 AND id < ?1 || char(1114111) ORDER BY seq");
+macro_rules! id_prefix_range {
+    () => {
+        "FROM messages WHERE id >= ?1 AND id < ?1 || char(1114111) ORDER BY seq"
+    };
+}
 
-// The id alone, over the same range and order as RESOLVE_SQL, whose comment gives the reason.
-const RESOLVE_ID_SQL: &str =
-    "SELECT id FROM messages WHERE id >= ?1 AND id < ?1 || char(1114111) ORDER BY seq";
+const RESOLVE_SQL: &str = select_message!(id_prefix_range!());
+
+const RESOLVE_ID_SQL: &str = concat!("SELECT id ", id_prefix_range!());
 
 /// The `list` query: ?1 Sender, ?2 Receiver, ?3 and ?4 the full ids of the --after and
 /// --before Messages, ?5, ?6 and ?7 the full ids that start the --upthread, --downthread and
