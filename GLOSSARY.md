@@ -35,7 +35,7 @@ _Avoid_: arrival order, creation order, chronological order, sort order
 
 **Cursor**:
 A Message id, or a unique prefix of one, that `list --after` or `--before` takes as a position
-in Sequence number order. It is never a date or time.
+in sequence-number order. It is never a date or time.
 _Avoid_: offset, timestamp, page token
 
 **Body source**:

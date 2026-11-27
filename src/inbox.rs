@@ -51,7 +51,9 @@ const SCHEMA: &str = "
 /// already renamed is left alone without taking the write lock, so `list` does not wait for
 /// writers. Otherwise the check is repeated inside the write transaction that renames, so two
 /// processes opening an old Inbox at once rename it once. SQLite's RENAME COLUMN also rewrites
-/// the `receivers` reference to `messages (arrival)`.
+/// the `receivers` reference to `messages (arrival)`, which holds only while the connection's
+/// `legacy_alter_table` is off (SQLite's default, and this code never turns it on); with it on,
+/// the reference would keep naming the old column.
 fn rename_arrival_columns(connection: &mut Connection) -> Result<()> {
     const TABLES: [&str; 2] = ["messages", "receivers"];
     let has_arrival = |connection: &Connection, table: &str| -> rusqlite::Result<bool> {
@@ -61,11 +63,11 @@ fn rename_arrival_columns(connection: &mut Connection) -> Result<()> {
             |row| row.get(0),
         )
     };
-    let mut old = false;
+    let mut needs_rename = false;
     for table in TABLES {
-        old |= has_arrival(connection, table)?;
+        needs_rename |= has_arrival(connection, table)?;
     }
-    if !old {
+    if !needs_rename {
         return Ok(());
     }
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;

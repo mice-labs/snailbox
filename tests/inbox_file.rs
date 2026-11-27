@@ -131,7 +131,12 @@ fn an_inbox_without_indexes_still_shows_body_and_parent() {
 
 // The schema as snailbox created it before the order column was named seq: the same tables with
 // `arrival` for the integer that orders the Messages and keys their Receivers.
-const SCHEMA_WITH_ARRIVAL_COLUMNS: &str = "
+const FIRST_ID: &str = "33333333-3333-4333-8333-333333333333";
+const SECOND_ID: &str = "44444444-4444-4444-8444-444444444444";
+
+fn schema_with_arrival_columns() -> String {
+    format!(
+        "
     CREATE TABLE messages (
         arrival    INTEGER PRIMARY KEY AUTOINCREMENT,
         id         TEXT NOT NULL UNIQUE,
@@ -148,17 +153,19 @@ const SCHEMA_WITH_ARRIVAL_COLUMNS: &str = "
         PRIMARY KEY (arrival, position)
     );
     INSERT INTO messages (id, sender, subject, body, created_at, parent) VALUES
-        ('11111111-1111-4111-8111-111111111111', 'alice', 'first', NULL, '2026-11-26T01:02:03Z', NULL),
-        ('22222222-2222-4222-8222-222222222222', 'bob', 'second', NULL, '2026-11-25T01:02:03Z', NULL);
+        ('{FIRST_ID}', 'alice', 'first', NULL, '2026-11-26T01:02:03Z', NULL),
+        ('{SECOND_ID}', 'bob', 'second', NULL, '2026-11-25T01:02:03Z', NULL);
     INSERT INTO receivers (arrival, position, name) VALUES (1, 0, 'bob'), (2, 0, 'alice');
-";
+"
+    )
+}
 
 #[test]
 fn an_inbox_with_arrival_columns_keeps_its_order_and_accepts_new_messages() {
     let home = TempFolder::new("file-arrival-columns");
     Connection::open(database(home.path()))
         .expect("the test can create the Inbox")
-        .execute_batch(SCHEMA_WITH_ARRIVAL_COLUMNS)
+        .execute_batch(&schema_with_arrival_columns())
         .expect("the old schema applies");
 
     let before = snailbox(home.path(), &["list", "--json"]);
@@ -169,9 +176,20 @@ fn an_inbox_with_arrival_columns_keeps_its_order_and_accepts_new_messages() {
         &["--from", "carol", "--to", "alice", "--subject", "third"],
     );
     let after = snailbox(home.path(), &["list", "--json"]);
+    let to_alice = snailbox(home.path(), &["list", "--to", "alice", "--json"]);
 
     assert!(after.status.success(), "list failed: {}", stderr(&after));
     assert!(after.stderr.is_empty(), "stderr was {}", stderr(&after));
+    assert!(
+        to_alice.status.success(),
+        "list --to failed: {}",
+        stderr(&to_alice)
+    );
+    assert!(
+        to_alice.stderr.is_empty(),
+        "stderr was {}",
+        stderr(&to_alice)
+    );
     let ids = |output: &std::process::Output| -> Vec<String> {
         let listed: serde_json::Value =
             serde_json::from_str(&stdout(output)).expect("list --json prints JSON");
@@ -182,8 +200,10 @@ fn an_inbox_with_arrival_columns_keeps_its_order_and_accepts_new_messages() {
             .map(|message| message["id"].as_str().expect("an id").to_string())
             .collect()
     };
-    assert_eq!(ids(&before), [ROOT_ID, REPLY_ID]);
-    assert_eq!(ids(&after), [ROOT_ID, REPLY_ID, new_id.as_str()]);
+    assert_eq!(ids(&before), [FIRST_ID, SECOND_ID]);
+    assert_eq!(ids(&after), [FIRST_ID, SECOND_ID, new_id.as_str()]);
+    // The receivers rows still match their Messages after the rename.
+    assert_eq!(ids(&to_alice), [SECOND_ID, new_id.as_str()]);
 }
 
 #[test]
