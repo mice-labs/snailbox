@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, SecondsFormat, Utc};
-use rusqlite::{params, Connection, Row, Rows, TransactionBehavior};
+use rusqlite::{params, Connection, Row, TransactionBehavior};
 
 use crate::listing::{Cursor, LeftOut, Listing};
 use crate::location;
@@ -148,7 +148,11 @@ impl Inbox {
     /// several do, listing the several.
     fn resolve(&self, prefix: &IdPrefix) -> Result<Message> {
         let mut statement = self.connection.prepare(RESOLVE_SQL)?;
-        let matches = read_messages(statement.query([prefix.as_str()])?, |_| Ok(()))?;
+        let mut rows = statement.query([prefix.as_str()])?;
+        let mut matches = Vec::new();
+        while let Some(row) = rows.next()? {
+            matches.push(message_from_row(row)?);
+        }
         one_of(prefix, matches, |message| message.id.to_string())
     }
 
@@ -199,7 +203,7 @@ impl Inbox {
             LIST_NEWEST_SQL
         };
         let mut statement = self.connection.prepare(sql)?;
-        let rows = statement.query(params![
+        let mut rows = statement.query(params![
             filter.from,
             filter.to,
             after,
@@ -210,10 +214,11 @@ impl Inbox {
             filter.limit.map(NonZeroUsize::get),
         ])?;
         let mut matched = 0;
-        let messages = read_messages(rows, |row| {
+        let mut messages = Vec::new();
+        while let Some(row) = rows.next()? {
             matched = row.get("matched")?;
-            Ok(())
-        })?;
+            messages.push(message_from_row(row)?);
+        }
         let count = matched - messages.len();
         // A non-zero limit that left Messages out kept at least one.
         let left_out = (count > 0).then(|| LeftOut {
@@ -254,20 +259,6 @@ fn named_by<T>(result: Result<T>, argument: IdArgument) -> Result<T> {
         .into(),
         Err(error) => error,
     })
-}
-
-/// The Messages `rows` hold, each read by `message_from_row`, with `also` run on each row for
-/// any column beyond the Message's own.
-fn read_messages(
-    mut rows: Rows<'_>,
-    mut also: impl FnMut(&Row<'_>) -> rusqlite::Result<()>,
-) -> Result<Vec<Message>> {
-    let mut messages = Vec::new();
-    while let Some(row) = rows.next()? {
-        also(row)?;
-        messages.push(message_from_row(row)?);
-    }
-    Ok(messages)
 }
 
 /// The Message a row of `select_message!` holds, its Receivers read from the JSON array the
