@@ -188,8 +188,8 @@ impl Inbox {
         let upthread = self.full_id_of(&filter.upthread, IdInput::Upthread)?;
         let downthread = self.full_id_of(&filter.downthread, IdInput::Downthread)?;
         let thread = self.full_id_of(&filter.thread, IdInput::Thread)?;
-        let keeps_oldest = after.is_some();
-        let sql = if keeps_oldest {
+        let paging_forward = after.is_some();
+        let sql = if paging_forward {
             LIST_OLDEST_SQL
         } else {
             LIST_NEWEST_SQL
@@ -214,7 +214,7 @@ impl Inbox {
         // A non-zero limit that left Messages out kept at least one.
         let left_out = (count > 0).then(|| LeftOut {
             count,
-            cursor: if keeps_oldest {
+            cursor: if paging_forward {
                 Cursor::After(messages.last().expect("a kept Message").id.clone())
             } else {
                 Cursor::Before(messages.first().expect("a kept Message").id.clone())
