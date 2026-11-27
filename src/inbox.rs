@@ -111,12 +111,7 @@ impl Inbox {
 
     /// Stores `new` with a fresh id and the current time, and returns the id.
     pub fn create(&mut self, new: &NewMessage) -> Result<MessageId> {
-        let parent = new
-            .reply_to
-            .as_ref()
-            .map(|prefix| self.resolve_input(prefix, IdInput::ReplyTo))
-            .transpose()?
-            .map(|parent| parent.id.to_string());
+        let parent = self.full_id_of(&new.reply_to, IdInput::ReplyTo)?;
         let id = MessageId::random();
         let created_at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
         // Immediate makes the lock point explicit: the write lock is taken at BEGIN, where a
@@ -153,42 +148,36 @@ impl Inbox {
     /// several do, listing the several.
     fn resolve(&self, prefix: &IdPrefix) -> Result<Message> {
         let mut statement = self.connection.prepare(RESOLVE_SQL)?;
-        let mut matches = read_messages(statement.query([prefix.as_str()])?, |_| Ok(()))?;
-        match matches.len() {
-            0 => Err(NoMessage {
-                prefix: prefix.clone(),
-            }
-            .into()),
-            1 => Ok(matches.remove(0)),
-            _ => bail!(
-                "the id prefix {prefix} matches several Messages:\n{}",
-                matches
-                    .iter()
-                    .map(|message| message.id.to_string())
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            ),
-        }
+        let matches = read_messages(statement.query([prefix.as_str()])?, |_| Ok(()))?;
+        one_of(prefix, matches, |message| message.id.to_string())
+    }
+
+    /// `resolve` for the id alone, read by `RESOLVE_ID_SQL`, which loads no Message body or
+    /// Receiver.
+    fn resolve_id(&self, prefix: &IdPrefix) -> Result<String> {
+        let mut statement = self.connection.prepare(RESOLVE_ID_SQL)?;
+        let ids = statement
+            .query_map([prefix.as_str()], |row| row.get("id"))?
+            .collect::<rusqlite::Result<Vec<String>>>()?;
+        one_of(prefix, ids, |id| id.clone())
     }
 
     /// `resolve` for an id input, whose no-match error names `input`.
     fn resolve_input(&self, prefix: &IdPrefix, input: IdInput) -> Result<Message> {
-        self.resolve(prefix)
-            .map_err(|error| match error.downcast::<NoMessage>() {
-                Ok(no_message) => NoMessageFor { input, no_message }.into(),
-                Err(error) => error,
-            })
+        named_by(self.resolve(prefix), input)
+    }
+
+    /// `resolve_id` for an id input, whose no-match error names `input`.
+    fn resolve_id_input(&self, prefix: &IdPrefix, input: IdInput) -> Result<String> {
+        named_by(self.resolve_id(prefix), input)
     }
 
     /// The full id of the Message `prefix` names, or none when there is no `prefix`; fails as
-    /// `resolve_input` does when no Message matches.
+    /// `resolve_id_input` does when no Message matches.
     fn full_id_of(&self, prefix: &Option<IdPrefix>, input: IdInput) -> Result<Option<String>> {
         prefix
             .as_ref()
-            .map(|prefix| {
-                self.resolve_input(prefix, input)
-                    .map(|message| message.id.to_string())
-            })
+            .map(|prefix| self.resolve_id_input(prefix, input))
             .transpose()
     }
 
@@ -242,6 +231,30 @@ impl Inbox {
         });
         Ok(Listing { messages, left_out })
     }
+}
+
+/// The one of `matches` that the id prefix `prefix` names: fails when none does, or when several
+/// do, listing their ids as `id_of` gives them. Both resolvers decide 0, 1 or several here.
+fn one_of<T>(prefix: &IdPrefix, mut matches: Vec<T>, id_of: impl Fn(&T) -> String) -> Result<T> {
+    match matches.len() {
+        0 => Err(NoMessage {
+            prefix: prefix.clone(),
+        }
+        .into()),
+        1 => Ok(matches.remove(0)),
+        _ => bail!(
+            "the id prefix {prefix} matches several Messages:\n{}",
+            matches.iter().map(id_of).collect::<Vec<_>>().join("\n")
+        ),
+    }
+}
+
+/// `result`, its no-match error named for `input`.
+fn named_by<T>(result: Result<T>, input: IdInput) -> Result<T> {
+    result.map_err(|error| match error.downcast::<NoMessage>() {
+        Ok(no_message) => NoMessageFor { input, no_message }.into(),
+        Err(error) => error,
+    })
 }
 
 /// The Messages `rows` hold, each read by `message_from_row`, with `also` run on each row for
@@ -348,6 +361,10 @@ const INSERT_RECEIVERS_SQL: &str = "INSERT INTO receivers (seq, position, name)
 // otherwise would need another upper bound.
 const RESOLVE_SQL: &str =
     select_message!("FROM messages WHERE id >= ?1 AND id < ?1 || char(1114111) ORDER BY seq");
+
+// The id alone, over the same range and order as RESOLVE_SQL, whose comment gives the reason.
+const RESOLVE_ID_SQL: &str =
+    "SELECT id FROM messages WHERE id >= ?1 AND id < ?1 || char(1114111) ORDER BY seq";
 
 /// The `list` query: ?1 Sender, ?2 Receiver, ?3 and ?4 the full ids of the --after and
 /// --before Messages, ?5, ?6 and ?7 the full ids that start the --upthread, --downthread and
