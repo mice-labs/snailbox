@@ -276,7 +276,10 @@ fn list_refuses_a_blank_to_or_from_as_create_does() {
 
         assert!(!output.status.success(), "{list_args:?} succeeded");
         assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
-        assert!(!stderr(&created).is_empty(), "{create_args:?} gave no error");
+        assert!(
+            !stderr(&created).is_empty(),
+            "{create_args:?} gave no error"
+        );
         assert_eq!(
             stderr(&output),
             stderr(&created),
