@@ -82,7 +82,7 @@ enum Command {
         /// left out
         #[arg(long, value_name = "ID")]
         thread: Option<IdPrefix>,
-        /// Return at most this many Messages, 0 for no limit: the first n after --after, else
+        /// Return at most this many Messages, at least 1 (default 50): the first n after --after, else
         /// the last n before --before (alone), else the most recent n
         #[arg(long, value_name = "N", default_value_t)]
         limit: Limit,

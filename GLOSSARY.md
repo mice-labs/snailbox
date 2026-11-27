@@ -44,7 +44,7 @@ standard input. A Message has at most one, and none means a Message with no body
 _Avoid_: body input
 
 **Limit**:
-The most Messages `list` returns, set by `--limit`. It is 50 when not given, and 0 means no limit.
+The most Messages `list` returns, set by `--limit`. It is 50 when not given and at least 1; 0 is refused, so there is no unlimited listing.
 _Avoid_: page size, count
 
 **Reply**:

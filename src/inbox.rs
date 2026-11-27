@@ -221,7 +221,7 @@ impl Inbox {
             upthread,
             downthread,
             thread,
-            filter.limit.get().map(NonZeroUsize::get),
+            filter.limit.get().get(),
         ])?;
         let mut matched = 0;
         let mut messages = Vec::new();
@@ -230,7 +230,7 @@ impl Inbox {
             messages.push(message_from_row(row)?);
         }
         let count = matched - messages.len();
-        // A non-zero limit that left Messages out kept at least one.
+        // A limit is at least 1, so a listing that left Messages out kept at least one.
         let left_out = (count > 0).then(|| LeftOut {
             count,
             cursor: if paging_forward {
@@ -333,16 +333,16 @@ pub struct ListFilter {
     pub limit: Limit,
 }
 
-/// The most Messages a `list` returns: 50 unless the caller says otherwise, and 0 for no limit.
+/// The most Messages a `list` returns: 50 unless the caller says otherwise, and never fewer
+/// than 1; there is no unlimited listing.
 #[derive(Clone, Copy, Debug)]
-pub struct Limit(usize);
+pub struct Limit(NonZeroUsize);
 
 impl Limit {
-    const DEFAULT: usize = 50;
+    const DEFAULT: NonZeroUsize = NonZeroUsize::new(50).expect("50 is not zero");
 
-    /// The limit as a count, or `None` for no limit.
-    fn get(self) -> Option<NonZeroUsize> {
-        NonZeroUsize::new(self.0)
+    fn get(self) -> NonZeroUsize {
+        self.0
     }
 }
 
@@ -359,10 +359,13 @@ impl std::fmt::Display for Limit {
 }
 
 impl std::str::FromStr for Limit {
-    type Err = std::num::ParseIntError;
+    type Err = anyhow::Error;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
-        text.parse().map(Self)
+        let count: usize = text.parse()?;
+        NonZeroUsize::new(count)
+            .map(Self)
+            .context("the limit must be at least 1")
     }
 }
 
@@ -531,17 +534,10 @@ mod rule_tests {
     }
 
     #[test]
-    fn a_limit_of_zero_removes_the_limit() {
-        let folder = TempFolder::new("zero-limit");
-        let mut inbox = Inbox::open(folder.path()).expect("the Inbox opens");
-        store(&mut inbox, 52);
+    fn a_limit_of_zero_is_refused() {
+        let error = "0".parse::<Limit>().expect_err("0 is not a limit");
 
-        let listing = inbox
-            .list(&unfiltered("0".parse().expect("0 is a limit")))
-            .expect("lists");
-
-        assert_eq!(listing.messages.len(), 52);
-        assert!(listing.left_out.is_none());
+        assert_eq!(error.to_string(), "the limit must be at least 1");
     }
 
     #[test]
