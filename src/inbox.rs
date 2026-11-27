@@ -141,7 +141,7 @@ impl Inbox {
                     new.subject,
                     new.body,
                     created_at,
-                    parent
+                    parent.map(|parent| parent.to_string())
                 ],
             )
             .context("cannot store the Message")?;
@@ -183,10 +183,10 @@ impl Inbox {
         &self,
         prefix: &Option<IdPrefix>,
         argument: IdArgument,
-    ) -> Result<Option<String>> {
+    ) -> Result<Option<MessageId>> {
         prefix
             .as_ref()
-            .map(|prefix| named_by(self.resolve_id(prefix), argument).map(|id| id.to_string()))
+            .map(|prefix| named_by(self.resolve_id(prefix), argument))
             .transpose()
     }
 
@@ -216,11 +216,11 @@ impl Inbox {
         let mut rows = statement.query(params![
             filter.from,
             filter.to,
-            after,
-            before,
-            upthread,
-            downthread,
-            thread,
+            after.map(|id| id.to_string()),
+            before.map(|id| id.to_string()),
+            upthread.map(|id| id.to_string()),
+            downthread.map(|id| id.to_string()),
+            thread.map(|id| id.to_string()),
             filter.limit.count(),
         ])?;
         let mut matched = 0;
@@ -277,11 +277,12 @@ fn message_from_row(row: &Row<'_>) -> Result<Message> {
     let id: String = row.get("id")?;
     let parent: Option<String> = row.get("parent")?;
     let receivers: String = row.get("receivers")?;
+    let receivers: Vec<String> = serde_json::from_str(&receivers)
+        .with_context(|| format!("the Inbox holds malformed Receivers {receivers}"))?;
     Ok(Message {
         id: stored_id("id", &id)?,
-        sender: row.get("sender")?,
-        receivers: serde_json::from_str(&receivers)
-            .with_context(|| format!("the Inbox holds malformed Receivers {receivers}"))?,
+        sender: Name::stored(row.get("sender")?),
+        receivers: receivers.into_iter().map(Name::stored).collect(),
         subject: row.get("subject")?,
         body: row.get("body")?,
         parent: parent
