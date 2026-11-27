@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Result;
-use clap::{ArgGroup, CommandFactory, FromArgMatches, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 use inbox::{BodySource, IdArgument, Inbox, Limit, ListFilter, NoMessageFor};
 use listing::{AFTER_FLAG, BEFORE_FLAG};
@@ -23,6 +23,31 @@ struct Cli {
     command: Command,
 }
 
+/// The flags that each name where a Message's body comes from. clap refuses a caller who gives
+/// more than one, in its own wording, so a `BodyArgs` names at most one source.
+#[derive(Args)]
+#[group(multiple = false)]
+struct BodyArgs {
+    /// The Message's body, given as text; without a Body source the Message has none
+    #[arg(long)]
+    body: Option<String>,
+    /// Take the body from this file, which must not be empty
+    #[arg(long)]
+    body_file: Option<PathBuf>,
+    /// Take the body from standard input, which must not be empty
+    #[arg(long)]
+    stdin: bool,
+}
+
+impl From<BodyArgs> for Option<BodySource> {
+    fn from(args: BodyArgs) -> Self {
+        args.body
+            .map(BodySource::Text)
+            .or(args.body_file.map(BodySource::File))
+            .or(args.stdin.then_some(BodySource::Stdin))
+    }
+}
+
 #[derive(Subcommand)]
 enum Command {
     /// Store a Message and print its id
@@ -36,15 +61,8 @@ enum Command {
         /// The Message's subject
         #[arg(long)]
         subject: String,
-        /// The Message's body, given as text; without a Body source the Message has none
-        #[arg(long)]
-        body: Option<String>,
-        /// Take the body from this file, which must not be empty
-        #[arg(long)]
-        body_file: Option<PathBuf>,
-        /// Take the body from standard input, which must not be empty
-        #[arg(long)]
-        stdin: bool,
+        #[command(flatten)]
+        body: BodyArgs,
         /// Store the Message as a Reply to this Message, named by its Message id or a unique
         /// prefix of it (not a date or time)
         #[arg(long, value_name = "ID")]
@@ -131,22 +149,8 @@ fn hint_id_error(error: anyhow::Error) -> anyhow::Error {
     )
 }
 
-/// Parses the command line. The Inbox names the Body source flags; this puts them in one clap
-/// argument group that allows at most one, so clap words the refusal and the usage line as it
-/// does any other.
-fn parse() -> Cli {
-    let command = Cli::command().mut_subcommand("create", |create| {
-        create.group(
-            ArgGroup::new("body_source")
-                .args(BodySource::FLAGS)
-                .multiple(false),
-        )
-    });
-    Cli::from_arg_matches(&command.get_matches()).unwrap_or_else(|error| error.exit())
-}
-
 fn main() -> ExitCode {
-    match run(parse().command) {
+    match run(Cli::parse().command) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("snailbox: {error:#}");
@@ -162,11 +166,9 @@ fn run(command: Command) -> Result<()> {
             to,
             subject,
             body,
-            body_file,
-            stdin,
             reply_to,
         } => {
-            let body = BodySource::from_flags(body, body_file, stdin)
+            let body = Option::<BodySource>::from(body)
                 .map(BodySource::read)
                 .transpose()?;
             let mut inbox = Inbox::open(&location::inbox_folder()?)?;
@@ -221,4 +223,48 @@ fn run(command: Command) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_body_flag_means_no_body_source() {
+        let args = BodyArgs {
+            body: None,
+            body_file: None,
+            stdin: false,
+        };
+
+        assert!(Option::<BodySource>::from(args).is_none());
+    }
+
+    #[test]
+    fn each_body_flag_names_its_source() {
+        let text = BodyArgs {
+            body: Some("hi".into()),
+            body_file: None,
+            stdin: false,
+        };
+        let file = BodyArgs {
+            body: None,
+            body_file: Some("f.txt".into()),
+            stdin: false,
+        };
+        let stdin = BodyArgs {
+            body: None,
+            body_file: None,
+            stdin: true,
+        };
+
+        assert!(matches!(Option::<BodySource>::from(text), Some(BodySource::Text(t)) if t == "hi"));
+        assert!(
+            matches!(Option::<BodySource>::from(file), Some(BodySource::File(p)) if p.ends_with("f.txt"))
+        );
+        assert!(matches!(
+            Option::<BodySource>::from(stdin),
+            Some(BodySource::Stdin)
+        ));
+    }
 }

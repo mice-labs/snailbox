@@ -483,8 +483,7 @@ mod test_folder {
     }
 }
 
-// These tests pin the rule the Inbox module decides for the command-line layer: the default
-// limit. It goes through the module's public types, never the command line.
+// These tests pin the rule the Inbox module decides: the default limit. It goes through the module's public types, never the command line.
 #[cfg(test)]
 mod rule_tests {
     use super::test_folder::TempFolder;
