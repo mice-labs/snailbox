@@ -288,6 +288,18 @@ fn the_notice_says_to_replace_only_the_cursor_and_keep_the_other_flags() {
 }
 
 #[test]
+fn the_notice_does_not_offer_a_limit_of_zero() {
+    let (home, _) = home_with(5, "notice-no-limit-zero");
+
+    let output = snailbox(home.path(), &["list", "--limit", "2"]);
+
+    let text = stdout(&output);
+    let last = text.lines().last().expect("a last line");
+    assert!(last.contains("left out"), "last was {last}");
+    assert!(!last.contains("--limit"), "last was {last}");
+}
+
+#[test]
 fn the_notice_counts_a_single_message_in_the_singular() {
     let (home, _) = home_with(2, "notice-singular");
 

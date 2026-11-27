@@ -221,7 +221,7 @@ impl Inbox {
             upthread,
             downthread,
             thread,
-            filter.limit.get().get(),
+            filter.limit.count(),
         ])?;
         let mut matched = 0;
         let mut messages = Vec::new();
@@ -341,8 +341,8 @@ pub struct Limit(NonZeroUsize);
 impl Limit {
     const DEFAULT: NonZeroUsize = NonZeroUsize::new(50).expect("50 is not zero");
 
-    fn get(self) -> NonZeroUsize {
-        self.0
+    fn count(self) -> usize {
+        self.0.get()
     }
 }
 

@@ -73,8 +73,8 @@ apply. So `--downthread <id> --after <last-seen-id>` returns only the new Replie
 Message.
 
 `--limit <n>` defaults to 50 and must be at least 1; `--limit 0` is refused.
-When more Messages match than the limit, `--after` (alone or with `--before`) returns the first n after that Message,
-`--before` alone returns the last n before it, and no cursor returns the most recent n;
+When more Messages match than the limit, `--after` (alone or with `--before`) returns the
+first n after that Message, `--before` alone returns the last n before it, and no cursor returns the most recent n;
 either way they print oldest first. A limit that left Messages out ends the text output with
 a line giving how many and the flag (`--after <id>` or `--before <id>`, with a full id) that
 reads them; the flag replaces the same cursor in the command (any `--before` for the older
