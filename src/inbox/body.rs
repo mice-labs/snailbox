@@ -25,8 +25,7 @@ impl BodySource {
     pub const FLAGS: [&'static str; 3] = ["body", "body_file", "stdin"];
 
     /// The source the caller's `--body`, `--body-file` and `--stdin` flags name, or `None` when
-    /// they name none. The caller has refused more than one (the argument group over `FLAGS`);
-    /// with several, the first in `FLAGS` order wins.
+    /// they name none. The caller has refused more than one (the argument group over `FLAGS`).
     pub fn from_flags(
         body: Option<String>,
         body_file: Option<PathBuf>,
