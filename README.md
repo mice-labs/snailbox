@@ -72,16 +72,16 @@ sequence-number order, and combine with every other filter; when given together 
 apply. So `--downthread <id> --after <last-seen-id>` returns only the new Replies beneath a
 Message.
 
-`--limit <n>` defaults to 50 and must be at least 1; `--limit 0` is refused.
-When more Messages match than the limit, `--after` (alone or with `--before`) returns the
-first n after that Message, `--before` alone returns the last n before it, and no cursor returns the most recent n;
-either way they print oldest first. A limit that left Messages out ends the text output with
-a line giving how many and the flag (`--after <id>` or `--before <id>`, with a full id) that
-reads them; the flag replaces the same cursor in the command (any `--before` for the older
-ones, any `--after` for the newer ones), whose other flags stay. With `--json`, `left_out` is
-that count and `next` that flag and id; when nothing was left out `left_out` is 0 and `next`
-is null, so the object has one shape either way. The cursors and limit combine with `--to`
-and `--from`, which narrow the matches before the limit applies, as do the thread filters.
+`--limit <n>` defaults to 50 and must be at least 1; `--limit 0` is refused. When more Messages
+match than the limit, `--after` (alone or with `--before`) returns the first n after that Message,
+`--before` alone returns the last n before it, and with neither `--after` nor `--before`, the most
+recent n; either way they print oldest first. A limit that left Messages out ends the text output
+with a line giving how many and the flag (`--after <id>` or `--before <id>`, with a full id) that
+reads them; the flag replaces the same cursor in the command (any `--before` for the older ones, any
+`--after` for the newer ones), whose other flags stay. With `--json`, `left_out` is that count and
+`next` that flag and id; when nothing was left out `left_out` is 0 and `next` is null, so the object
+has one shape either way. The cursors and limit combine with `--to` and `--from`, which narrow the
+matches before the limit applies, as do the thread filters.
 
 The Inbox is a SQLite database in the folder `SNAILBOX_HOME` names when it is set, else
 `$XDG_DATA_HOME/snailbox/` when that is set, else `~/.local/share/snailbox/`. An empty
