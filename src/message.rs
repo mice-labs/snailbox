@@ -88,9 +88,9 @@ impl std::str::FromStr for IdPrefix {
 }
 
 /// A Sender's or Receiver's name, which must hold something other than whitespace. Reading
-/// one from the Inbox or from JSON applies the same rule. It serializes as its bare text:
-/// serde writes a newtype struct as its field, and `#[serde(transparent)]` cannot be combined
-/// with `try_from`.
+/// one from the Inbox or from JSON applies the same rule. With `serde_json` it serializes as
+/// its bare text, because serde_json writes a newtype struct as its field (another format may
+/// wrap it), and `#[serde(transparent)]` cannot be combined with `try_from`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(try_from = "String")]
 pub struct Name(String);
@@ -304,7 +304,7 @@ mod tests {
         assert_eq!(read_id.to_string(), id.to_string());
         assert_eq!(read_name.as_str(), "alice");
         assert_eq!(
-            serde_json::to_string(&(id.clone(), name)).expect("serializes"),
+            serde_json::to_string(&(&id, &name)).expect("serializes"),
             format!(r#"["{id}","alice"]"#)
         );
     }
