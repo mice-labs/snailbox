@@ -135,10 +135,8 @@ fn hint_id_error(error: anyhow::Error) -> anyhow::Error {
 /// decision to clap, so clap words the refusal and the usage line as it does any other.
 fn parse() -> Cli {
     let command = Cli::command().mut_subcommand("create", |create| {
-        BodySource::FLAGS.iter().fold(create, |create, flag| {
-            create.mut_arg(*flag, |arg: Arg| {
-                arg.conflicts_with_all(BodySource::conflicts_with(flag))
-            })
+        BodySource::conflicts().fold(create, |create, (flag, others)| {
+            create.mut_arg(flag, |arg: Arg| arg.conflicts_with_all(others))
         })
     });
     Cli::from_arg_matches(&command.get_matches()).unwrap_or_else(|error| error.exit())
@@ -165,7 +163,7 @@ fn run(command: Command) -> Result<()> {
             stdin,
             reply_to,
         } => {
-            let body = BodySource::from_flags(body, body_file, stdin)?
+            let body = BodySource::from_flags(body, body_file, stdin)
                 .map(BodySource::read)
                 .transpose()?;
             let mut inbox = Inbox::open(&location::inbox_folder()?)?;

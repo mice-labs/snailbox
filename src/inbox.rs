@@ -453,18 +453,39 @@ macro_rules! list_sql {
 const LIST_OLDEST_SQL: &str = list_sql!("ASC");
 const LIST_NEWEST_SQL: &str = list_sql!("DESC");
 
+#[cfg(test)]
+mod test_folder {
+    use std::path::Path;
+
+    /// A folder under the temp directory for one test's Inbox, removed on drop.
+    pub struct TempFolder(std::path::PathBuf);
+
+    impl TempFolder {
+        pub fn new(name: &str) -> Self {
+            let folder =
+                std::env::temp_dir().join(format!("snailbox-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&folder);
+            Self(folder)
+        }
+
+        pub fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempFolder {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+}
+
 // These tests pin the rule the Inbox module decides for the command-line layer: the default
 // limit. It goes through the module's public types, never the command line.
 #[cfg(test)]
 mod rule_tests {
+    use super::test_folder::TempFolder;
     use super::*;
-
-    fn temp_inbox(name: &str) -> (std::path::PathBuf, Inbox) {
-        let folder = std::env::temp_dir().join(format!("snailbox-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&folder);
-        let inbox = Inbox::open(&folder).expect("the Inbox opens");
-        (folder, inbox)
-    }
 
     fn name(text: &str) -> Name {
         text.parse().expect("the name is not blank")
@@ -499,19 +520,20 @@ mod rule_tests {
 
     #[test]
     fn a_listing_without_a_limit_keeps_the_most_recent_fifty() {
-        let (folder, mut inbox) = temp_inbox("default-limit");
+        let folder = TempFolder::new("default-limit");
+        let mut inbox = Inbox::open(folder.path()).expect("the Inbox opens");
         store(&mut inbox, 52);
 
         let listing = inbox.list(&unfiltered(Limit::default())).expect("lists");
 
         assert_eq!(listing.messages.len(), 50);
         assert_eq!(listing.left_out.expect("two were left out").count, 2);
-        let _ = std::fs::remove_dir_all(folder);
     }
 
     #[test]
     fn a_limit_of_zero_removes_the_limit() {
-        let (folder, mut inbox) = temp_inbox("zero-limit");
+        let folder = TempFolder::new("zero-limit");
+        let mut inbox = Inbox::open(folder.path()).expect("the Inbox opens");
         store(&mut inbox, 52);
 
         let listing = inbox
@@ -520,12 +542,13 @@ mod rule_tests {
 
         assert_eq!(listing.messages.len(), 52);
         assert!(listing.left_out.is_none());
-        let _ = std::fs::remove_dir_all(folder);
     }
 
     #[test]
     fn a_limit_that_is_not_a_number_is_refused() {
-        assert!("many".parse::<Limit>().is_err());
+        let error = "many".parse::<Limit>().expect_err("many is not a number");
+
+        assert_eq!(error.to_string(), "invalid digit found in string");
     }
 }
 
@@ -535,28 +558,8 @@ mod rule_tests {
 // such a row.
 #[cfg(test)]
 mod tests {
+    use super::test_folder::TempFolder;
     use super::*;
-
-    /// A folder under the temp directory for one test's Inbox, removed on drop.
-    struct TempFolder(std::path::PathBuf);
-
-    impl TempFolder {
-        fn new(name: &str) -> Self {
-            let folder =
-                std::env::temp_dir().join(format!("snailbox-{name}-{}", std::process::id()));
-            Self(folder)
-        }
-
-        fn path(&self) -> &Path {
-            &self.0
-        }
-    }
-
-    impl Drop for TempFolder {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
 
     fn assert_foreign_key_refused(result: rusqlite::Result<usize>) {
         let error = result.expect_err("the insert is refused");
