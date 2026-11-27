@@ -24,8 +24,12 @@ const WRITER_WAIT: Duration = Duration::from_secs(30);
 // later. `created_at` is RFC 3339 text in UTC, since SQLite has no date type. The indexes are
 // IF NOT EXISTS so an Inbox created before they existed gains them on its next open, with no
 // migration step; without the one on parent each Downthread step of a thread filter scans
-// the table. The REFERENCES clauses are enforced on each connection Inbox::open opens, which sets
-// foreign_keys on it; a connection opened another way enforces them only if it sets that too.
+// the table. SQLite enforces the REFERENCES clauses per connection, only where foreign_keys is
+// on. Inbox::open sets it on each connection it opens, before any transaction, since inside one
+// SQLite ignores the pragma; setting it keeps them enforced whatever the build default is
+// (snailbox-8ly.1.22). A connection opened another way enforces them only if it sets the pragma
+// or its SQLite build defaults it on, as rusqlite's `bundled` build (Cargo.toml) does with
+// SQLITE_DEFAULT_FOREIGN_KEYS=1.
 const SCHEMA: &str = "
     CREATE TABLE IF NOT EXISTS messages (
         seq        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -104,10 +108,6 @@ impl Inbox {
         connection
             .busy_timeout(WRITER_WAIT)
             .context("cannot set up the Inbox")?;
-        // Foreign key enforcement is per connection and the bundled SQLite's default is what
-        // rusqlite ships; setting it here keeps SCHEMA's REFERENCES enforced whatever the
-        // build default is (snailbox-8ly.1.22). It is set outside any transaction, where SQLite
-        // ignores it.
         connection
             .pragma_update(None, "foreign_keys", true)
             .context("cannot set up the Inbox")?;
@@ -416,22 +416,30 @@ macro_rules! list_sql {
 const LIST_OLDEST_SQL: &str = list_sql!("ASC");
 const LIST_NEWEST_SQL: &str = list_sql!("DESC");
 
+// These tests pin the guarantee that an Inbox refuses a row whose REFERENCES name nothing, not
+// the foreign_keys pragma Inbox::open sets: on rusqlite's `bundled` build, which defaults the
+// pragma on, they pass without it too. They test at the database because the CLI never writes
+// such a row.
 #[cfg(test)]
 mod tests {
     use super::*;
 
     /// A folder under the temp directory for one test's Inbox, removed on drop.
-    struct Folder(std::path::PathBuf);
+    struct TempFolder(std::path::PathBuf);
 
-    impl Folder {
+    impl TempFolder {
         fn new(name: &str) -> Self {
             let folder =
                 std::env::temp_dir().join(format!("snailbox-{name}-{}", std::process::id()));
             Self(folder)
         }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
     }
 
-    impl Drop for Folder {
+    impl Drop for TempFolder {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
@@ -447,8 +455,8 @@ mod tests {
 
     #[test]
     fn a_message_whose_parent_names_no_message_is_refused() {
-        let folder = Folder::new("fk-parent");
-        let inbox = Inbox::open(&folder.0).expect("the Inbox opens");
+        let folder = TempFolder::new("fk-parent");
+        let inbox = Inbox::open(folder.path()).expect("the Inbox opens");
 
         let result = inbox.connection.execute(
             "INSERT INTO messages (id, sender, subject, body, created_at, parent)
@@ -462,8 +470,8 @@ mod tests {
 
     #[test]
     fn a_receiver_whose_seq_names_no_message_is_refused() {
-        let folder = Folder::new("fk-receiver");
-        let inbox = Inbox::open(&folder.0).expect("the Inbox opens");
+        let folder = TempFolder::new("fk-receiver");
+        let inbox = Inbox::open(folder.path()).expect("the Inbox opens");
 
         let result = inbox.connection.execute(
             "INSERT INTO receivers (seq, position, name) VALUES (999, 0, 'bob')",
