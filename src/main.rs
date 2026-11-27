@@ -1,20 +1,17 @@
-mod body;
 mod inbox;
 mod listing;
 mod location;
 mod message;
 
-use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
-use body::BodySource;
-use inbox::{IdArgument, Inbox, ListFilter, NoMessageFor};
+use inbox::{BodySource, IdArgument, Inbox, Limit, ListFilter, NoMessageFor};
 use listing::{AFTER_FLAG, BEFORE_FLAG};
-use message::{IdPrefix, NewMessage};
+use message::{IdPrefix, Name, NewMessage};
 
 #[derive(Parser)]
 #[command(
@@ -26,28 +23,46 @@ struct Cli {
     command: Command,
 }
 
+/// The flags that each name where a Message's body comes from. clap refuses a caller who gives
+/// more than one, in its own wording, so a `BodyArgs` names at most one source.
+#[derive(Args)]
+#[group(multiple = false)]
+struct BodyArgs {
+    /// The Message's body, given as text; without a Body source the Message has none
+    #[arg(long)]
+    body: Option<String>,
+    /// Take the body from this file, which must not be empty
+    #[arg(long)]
+    body_file: Option<PathBuf>,
+    /// Take the body from standard input, which must not be empty
+    #[arg(long)]
+    stdin: bool,
+}
+
+impl From<BodyArgs> for Option<BodySource> {
+    fn from(args: BodyArgs) -> Self {
+        args.body
+            .map(BodySource::Text)
+            .or(args.body_file.map(BodySource::File))
+            .or(args.stdin.then_some(BodySource::Stdin))
+    }
+}
+
 #[derive(Subcommand)]
 enum Command {
     /// Store a Message and print its id
     Create {
         /// The Sender's name
-        #[arg(long, value_parser = name)]
-        from: String,
+        #[arg(long, value_parser = str::parse::<Name>)]
+        from: Name,
         /// A Receiver's name; repeat for each Receiver
-        #[arg(long, required = true, value_parser = name)]
-        to: Vec<String>,
+        #[arg(long, required = true, value_parser = str::parse::<Name>)]
+        to: Vec<Name>,
         /// The Message's subject
         #[arg(long)]
         subject: String,
-        /// The Message's body, given as text; without a Body source the Message has none
-        #[arg(long, conflicts_with_all = ["body_file", "stdin"])]
-        body: Option<String>,
-        /// Take the body from this file, which must not be empty
-        #[arg(long, conflicts_with = "stdin")]
-        body_file: Option<PathBuf>,
-        /// Take the body from standard input, which must not be empty
-        #[arg(long)]
-        stdin: bool,
+        #[command(flatten)]
+        body_source: BodyArgs,
         /// Store the Message as a Reply to this Message, named by its Message id or a unique
         /// prefix of it (not a date or time)
         #[arg(long, value_name = "ID")]
@@ -85,10 +100,10 @@ enum Command {
         /// left out
         #[arg(long, value_name = "ID")]
         thread: Option<IdPrefix>,
-        /// Return at most this many Messages, 0 for no limit: the first n after --after, else
-        /// the last n before --before (alone), else the most recent n
-        #[arg(long, value_name = "N", default_value_t = 50)]
-        limit: usize,
+        /// Return at most this many Messages, at least 1: the first n after --after, else the
+        /// last n before --before (alone), else the most recent n
+        #[arg(long, value_name = "N", default_value_t)]
+        limit: Limit,
         /// Print one JSON object: `messages` (each with id, creation time, Sender, Receivers
         /// and subject, as in the text; no body or parent, which `show --json` has),
         /// `left_out` (how many the limit left out, 0 for none) and `next` (the flag and id
@@ -105,14 +120,6 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-}
-
-/// A Sender's or Receiver's name, which must hold something other than whitespace.
-fn name(text: &str) -> Result<String, String> {
-    if text.trim().is_empty() {
-        return Err("the name is blank; give a name".to_owned());
-    }
-    Ok(text.to_owned())
 }
 
 /// Adds to a no-match error from an argument or flag that takes a Message id the hint that it
@@ -158,12 +165,10 @@ fn run(command: Command) -> Result<()> {
             from,
             to,
             subject,
-            body,
-            body_file,
-            stdin,
+            body_source,
             reply_to,
         } => {
-            let body = BodySource::from_flags(body, body_file, stdin)
+            let body = Option::<BodySource>::from(body_source)
                 .map(BodySource::read)
                 .transpose()?;
             let mut inbox = Inbox::open(&location::inbox_folder()?)?;
@@ -198,7 +203,7 @@ fn run(command: Command) -> Result<()> {
                 upthread,
                 downthread,
                 thread,
-                limit: NonZeroUsize::new(limit),
+                limit,
             };
             let listing = inbox.list(&filter).map_err(hint_id_error)?;
             if json {
@@ -218,4 +223,58 @@ fn run(command: Command) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_body_flag_means_no_body_source() {
+        let args = BodyArgs {
+            body: None,
+            body_file: None,
+            stdin: false,
+        };
+
+        assert!(Option::<BodySource>::from(args).is_none());
+    }
+
+    #[test]
+    fn the_body_flag_names_a_text_source() {
+        let text = BodyArgs {
+            body: Some("hi".into()),
+            body_file: None,
+            stdin: false,
+        };
+
+        assert!(matches!(Option::<BodySource>::from(text), Some(BodySource::Text(t)) if t == "hi"));
+    }
+
+    #[test]
+    fn the_body_file_flag_names_a_file_source() {
+        let file = BodyArgs {
+            body: None,
+            body_file: Some("f.txt".into()),
+            stdin: false,
+        };
+
+        assert!(
+            matches!(Option::<BodySource>::from(file), Some(BodySource::File(p)) if p.ends_with("f.txt"))
+        );
+    }
+
+    #[test]
+    fn the_stdin_flag_names_a_stdin_source() {
+        let stdin = BodyArgs {
+            body: None,
+            body_file: None,
+            stdin: true,
+        };
+
+        assert!(matches!(
+            Option::<BodySource>::from(stdin),
+            Some(BodySource::Stdin)
+        ));
+    }
 }

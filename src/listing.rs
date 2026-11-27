@@ -65,7 +65,7 @@ impl LeftOut {
         let count = self.count;
         let noun = if count == 1 { "Message" } else { "Messages" };
         format!(
-            "{count} {direction} {noun} left out by the limit; read them with the same flags but {} in place of any {flag} (or --limit 0 for no limit)",
+            "{count} {direction} {noun} left out by the limit; read them with the same flags but {} in place of any {flag}",
             self.next_args(),
         )
     }

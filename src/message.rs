@@ -64,10 +64,31 @@ impl std::str::FromStr for IdPrefix {
     }
 }
 
+/// A Sender's or Receiver's name, which must hold something other than whitespace.
+#[derive(Clone, Debug)]
+pub struct Name(String);
+
+impl Name {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::str::FromStr for Name {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        if text.trim().is_empty() {
+            return Err("the name is blank; give a name".to_owned());
+        }
+        Ok(Self(text.to_owned()))
+    }
+}
+
 /// What a creator supplies for a new Message; the Inbox adds the id and creation time.
 pub struct NewMessage {
-    pub sender: String,
-    pub receivers: Vec<String>,
+    pub sender: Name,
+    pub receivers: Vec<Name>,
     pub subject: String,
     pub body: Option<String>,
     /// The id, or a unique prefix of it, of the Message this one replies to.
@@ -161,5 +182,29 @@ impl Message {
             "subject": self.subject,
             "created_at": self.created_at.to_rfc3339_opts(SecondsFormat::Secs, true),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_blank_name_is_refused() {
+        for blank in ["", "  ", " \t"] {
+            let error = blank.parse::<Name>().err();
+            assert_eq!(
+                error.as_deref(),
+                Some("the name is blank; give a name"),
+                "for {blank:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_name_is_kept_as_given() {
+        let name: Name = " alice ".parse().expect("the name is not blank");
+
+        assert_eq!(name.as_str(), " alice ");
     }
 }

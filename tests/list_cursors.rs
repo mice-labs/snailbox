@@ -164,10 +164,18 @@ fn limit_defaults_to_fifty_and_the_most_recent_are_kept() {
 }
 
 #[test]
-fn limit_zero_removes_the_limit() {
-    let (home, _) = home_with(52, "no-limit");
+fn limit_zero_is_refused_and_lists_nothing() {
+    let (home, _) = home_with(3, "zero-limit");
 
-    assert_eq!(listed_subjects(&home, &["--limit", "0"]), subjects(1..=52));
+    let output = snailbox(home.path(), &["list", "--limit", "0"]);
+
+    assert!(!output.status.success());
+    assert!(stdout(&output).is_empty(), "stdout was {}", stdout(&output));
+    assert!(
+        stderr(&output).contains("the limit must be at least 1"),
+        "stderr was {}",
+        stderr(&output)
+    );
 }
 
 #[test]
@@ -280,6 +288,18 @@ fn the_notice_says_to_replace_only_the_cursor_and_keep_the_other_flags() {
 }
 
 #[test]
+fn the_notice_does_not_offer_a_limit_of_zero() {
+    let (home, _) = home_with(5, "notice-no-limit-zero");
+
+    let output = snailbox(home.path(), &["list", "--limit", "2"]);
+
+    let text = stdout(&output);
+    let last = text.lines().last().expect("a last line");
+    assert!(last.contains("left out"), "last was {last}");
+    assert!(!last.contains("--limit"), "last was {last}");
+}
+
+#[test]
 fn the_notice_counts_a_single_message_in_the_singular() {
     let (home, _) = home_with(2, "notice-singular");
 
@@ -295,7 +315,7 @@ fn the_notice_counts_a_single_message_in_the_singular() {
 fn no_notice_when_nothing_was_left_out() {
     let (home, _) = home_with(3, "no-notice");
 
-    for args in [&["--limit", "3"][..], &["--limit", "0"][..], &[][..]] {
+    for args in [&["--limit", "3"][..], &[][..]] {
         let output = snailbox(home.path(), &[&["list"], args].concat());
         let text = stdout(&output);
         assert_eq!(text.lines().count(), 3, "output for {args:?} was {text}");

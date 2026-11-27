@@ -43,6 +43,11 @@ Where a Message's body is taken from when it is created: the text given directly
 standard input. A Message has at most one, and none means a Message with no body.
 _Avoid_: body input
 
+**Limit**:
+The most Messages `list` returns, set by `--limit`. It is 50 when not given and at least 1;
+0 is refused, so there is no unlimited listing.
+_Avoid_: page size, count
+
 **Reply**:
 A Message that answers one other Message, its **parent**.
 _Avoid_: response, follow-up

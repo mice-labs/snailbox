@@ -1,4 +1,8 @@
-//! Where `create` takes a Message's body from.
+//! Where `create` takes a Message's body from, and the rule on it: a file or standard input that
+//! is not blank.
+//!
+//! This module holds one source. The command-line layer guarantees that at most one is given: it
+//! states that to clap, which refuses a caller who names two.
 
 use std::io::Read;
 use std::path::PathBuf;
@@ -13,22 +17,6 @@ pub enum BodySource {
 }
 
 impl BodySource {
-    /// The source the caller's `--body`, `--body-file` and `--stdin` flags name, or `None` when
-    /// they name none. The command line allows at most one of them, so the order here only
-    /// settles what cannot happen.
-    pub fn from_flags(
-        body: Option<String>,
-        body_file: Option<PathBuf>,
-        stdin: bool,
-    ) -> Option<Self> {
-        match (body, body_file, stdin) {
-            (Some(text), _, _) => Some(Self::Text(text)),
-            (None, Some(path), _) => Some(Self::File(path)),
-            (None, None, true) => Some(Self::Stdin),
-            (None, None, false) => None,
-        }
-    }
-
     /// The body this source gives. A file or standard input that is empty or holds only
     /// whitespace is an error, so an upstream command that failed before printing anything
     /// cannot leave a blank Message; one that failed after printing some text still gives that
@@ -60,4 +48,29 @@ fn not_blank(text: String, complaint: &str) -> Result<String> {
         bail!("{complaint}; pass --body for a short body or leave the body out for none");
     }
     Ok(text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_body_file_of_only_whitespace_is_refused() {
+        let file = std::env::temp_dir().join(format!("snailbox-blank-{}", std::process::id()));
+        std::fs::write(&file, "\n \t\n").expect("the file is written");
+
+        let error = BodySource::File(file.clone())
+            .read()
+            .expect_err("the body is blank");
+
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "the body file {} is empty or blank; pass --body for a short body or leave the \
+                 body out for none",
+                file.display()
+            )
+        );
+        let _ = std::fs::remove_file(file);
+    }
 }

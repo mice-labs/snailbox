@@ -10,7 +10,10 @@ use rusqlite::{params, Connection, Row, TransactionBehavior};
 
 use crate::listing::{Cursor, LeftOut, Listing};
 use crate::location;
-use crate::message::{IdPrefix, Message, MessageId, NewMessage};
+use crate::message::{IdPrefix, Message, MessageId, Name, NewMessage};
+
+mod body;
+pub use body::BodySource;
 
 const DATABASE_FILE: &str = "inbox.sqlite3";
 
@@ -134,7 +137,7 @@ impl Inbox {
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![
                     id.to_string(),
-                    new.sender,
+                    new.sender.as_str(),
                     new.subject,
                     new.body,
                     created_at,
@@ -144,7 +147,8 @@ impl Inbox {
             .context("cannot store the Message")?;
         let seq = transaction.last_insert_rowid();
         let receivers =
-            serde_json::to_string(&new.receivers).context("cannot store the Message")?;
+            serde_json::to_string(&new.receivers.iter().map(Name::as_str).collect::<Vec<_>>())
+                .context("cannot store the Message")?;
         transaction
             .execute(INSERT_RECEIVERS_SQL, params![seq, receivers])
             .context("cannot store the Message")?;
@@ -217,7 +221,7 @@ impl Inbox {
             upthread,
             downthread,
             thread,
-            filter.limit.map(NonZeroUsize::get),
+            filter.limit.count(),
         ])?;
         let mut matched = 0;
         let mut messages = Vec::new();
@@ -226,7 +230,7 @@ impl Inbox {
             messages.push(message_from_row(row)?);
         }
         let count = matched - messages.len();
-        // A non-zero limit that left Messages out kept at least one.
+        // A limit is at least 1, so a listing that left Messages out kept at least one.
         let left_out = (count > 0).then(|| LeftOut {
             count,
             cursor: if paging_forward {
@@ -325,8 +329,44 @@ pub struct ListFilter {
     /// Matches only the Message with this id or prefix with everything upthread and downthread
     /// of it.
     pub thread: Option<IdPrefix>,
-    /// The most Messages to return; `None` returns every match.
-    pub limit: Option<NonZeroUsize>,
+    /// The most Messages to return.
+    pub limit: Limit,
+}
+
+/// The most Messages a `list` returns: 50 unless the caller says otherwise, and never fewer
+/// than 1; there is no unlimited listing.
+#[derive(Clone, Copy, Debug)]
+pub struct Limit(NonZeroUsize);
+
+impl Limit {
+    const DEFAULT: NonZeroUsize = NonZeroUsize::new(50).expect("50 is not zero");
+
+    fn count(self) -> usize {
+        self.0.get()
+    }
+}
+
+impl Default for Limit {
+    fn default() -> Self {
+        Self(Self::DEFAULT)
+    }
+}
+
+impl std::fmt::Display for Limit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl std::str::FromStr for Limit {
+    type Err = anyhow::Error;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let count: usize = text.parse()?;
+        NonZeroUsize::new(count)
+            .map(Self)
+            .context("the limit must be at least 1")
+    }
 }
 
 /// Prepends the SELECT that reads a whole Message, its Receivers aggregated in position order
@@ -416,25 +456,22 @@ macro_rules! list_sql {
 const LIST_OLDEST_SQL: &str = list_sql!("ASC");
 const LIST_NEWEST_SQL: &str = list_sql!("DESC");
 
-// These tests pin the guarantee that an Inbox refuses a row whose REFERENCES name nothing, not
-// the foreign_keys pragma Inbox::open sets: on rusqlite's `bundled` build, which defaults the
-// pragma on, they pass without it too. They test at the database because the CLI never writes
-// such a row.
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod test_folder {
+    use std::path::Path;
 
     /// A folder under the temp directory for one test's Inbox, removed on drop.
-    struct TempFolder(std::path::PathBuf);
+    pub struct TempFolder(std::path::PathBuf);
 
     impl TempFolder {
-        fn new(name: &str) -> Self {
+        pub fn new(name: &str) -> Self {
             let folder =
                 std::env::temp_dir().join(format!("snailbox-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&folder);
             Self(folder)
         }
 
-        fn path(&self) -> &Path {
+        pub fn path(&self) -> &Path {
             &self.0
         }
     }
@@ -444,6 +481,81 @@ mod tests {
             let _ = std::fs::remove_dir_all(&self.0);
         }
     }
+}
+
+// These tests pin the rules the Inbox module decides for Limit: its default, and the refusal of
+// zero and of a non-number. They go through the module's public types, never the command line.
+#[cfg(test)]
+mod rule_tests {
+    use super::test_folder::TempFolder;
+    use super::*;
+
+    fn name(text: &str) -> Name {
+        text.parse().expect("the name is not blank")
+    }
+
+    fn unfiltered(limit: Limit) -> ListFilter {
+        ListFilter {
+            to: None,
+            from: None,
+            after: None,
+            before: None,
+            upthread: None,
+            downthread: None,
+            thread: None,
+            limit,
+        }
+    }
+
+    fn store(inbox: &mut Inbox, count: usize) {
+        for _ in 0..count {
+            inbox
+                .create(&NewMessage {
+                    sender: name("alice"),
+                    receivers: vec![name("bob")],
+                    subject: "hi".to_owned(),
+                    body: None,
+                    reply_to: None,
+                })
+                .expect("the Message is stored");
+        }
+    }
+
+    #[test]
+    fn a_listing_without_a_limit_keeps_the_most_recent_fifty() {
+        let folder = TempFolder::new("default-limit");
+        let mut inbox = Inbox::open(folder.path()).expect("the Inbox opens");
+        store(&mut inbox, 52);
+
+        let listing = inbox.list(&unfiltered(Limit::default())).expect("lists");
+
+        assert_eq!(listing.messages.len(), 50);
+        assert_eq!(listing.left_out.expect("two were left out").count, 2);
+    }
+
+    #[test]
+    fn a_limit_of_zero_is_refused() {
+        let error = "0".parse::<Limit>().expect_err("0 is not a limit");
+
+        assert_eq!(error.to_string(), "the limit must be at least 1");
+    }
+
+    #[test]
+    fn a_limit_that_is_not_a_number_is_refused() {
+        let error = "many".parse::<Limit>().expect_err("many is not a number");
+
+        assert_eq!(error.to_string(), "invalid digit found in string");
+    }
+}
+
+// These tests pin the guarantee that an Inbox refuses a row whose REFERENCES name nothing, not
+// the foreign_keys pragma Inbox::open sets: on rusqlite's `bundled` build, which defaults the
+// pragma on, they pass without it too. They test at the database because the CLI never writes
+// such a row.
+#[cfg(test)]
+mod tests {
+    use super::test_folder::TempFolder;
+    use super::*;
 
     fn assert_foreign_key_refused(result: rusqlite::Result<usize>) {
         let error = result.expect_err("the insert is refused");
