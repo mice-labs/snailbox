@@ -1,0 +1,26 @@
+name: check
+
+# A failing `make check` shows as a red check on the PR. The toolchain is
+# RUSTUP_TOOLCHAIN below: `stable` is updated to the latest stable at run time, so
+# a new Rust release can turn a green PR red; set it to a version (for example
+# 1.85.0) to freeze it. The install step and cargo both read this one variable.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: stable
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Install Rust with rustfmt and clippy
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component rustfmt --component clippy --no-self-update
+      - name: make check
+        run: make check
