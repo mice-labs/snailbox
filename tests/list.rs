@@ -253,20 +253,34 @@ fn list_refuses_a_blank_to_or_from_as_create_does() {
     let home = TempFolder::new("list-blank-name");
     store(&home, "alice", &["bob"], "lunch?");
 
-    for args in [
-        &["list", "--to", ""][..],
-        &["list", "--to", "  "][..],
-        &["list", "--from", ""][..],
-        &["list", "--from", " \t"][..],
+    for (list_args, create_args) in [
+        (
+            &["list", "--to", ""][..],
+            &["create", "--from", "alice", "--to", "", "--subject", "s"][..],
+        ),
+        (
+            &["list", "--to", "  "][..],
+            &["create", "--from", "alice", "--to", "  ", "--subject", "s"][..],
+        ),
+        (
+            &["list", "--from", ""][..],
+            &["create", "--from", "", "--to", "bob", "--subject", "s"][..],
+        ),
+        (
+            &["list", "--from", " \t"][..],
+            &["create", "--from", " \t", "--to", "bob", "--subject", "s"][..],
+        ),
     ] {
-        let output = snailbox(home.path(), args);
+        let output = snailbox(home.path(), list_args);
+        let created = snailbox(home.path(), create_args);
 
-        assert!(!output.status.success(), "{args:?} succeeded");
+        assert!(!output.status.success(), "{list_args:?} succeeded");
         assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
-        assert!(
-            stderr(&output).contains("the name is blank; give a name"),
-            "stderr for {args:?} was {}",
-            stderr(&output)
+        assert!(!stderr(&created).is_empty(), "{create_args:?} gave no error");
+        assert_eq!(
+            stderr(&output),
+            stderr(&created),
+            "stderr for {list_args:?} differs from create's"
         );
     }
 }
