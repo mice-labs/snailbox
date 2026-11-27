@@ -24,7 +24,8 @@ const WRITER_WAIT: Duration = Duration::from_secs(30);
 // later. `created_at` is RFC 3339 text in UTC, since SQLite has no date type. The indexes are
 // IF NOT EXISTS so an Inbox created before they existed gains them on its next open, with no
 // migration step; without the one on parent each Downthread step of a thread filter scans
-// the table.
+// the table. The REFERENCES clauses are enforced on each connection Inbox::open opens, which sets
+// foreign_keys on it; a connection opened another way enforces them only if it sets that too.
 const SCHEMA: &str = "
     CREATE TABLE IF NOT EXISTS messages (
         seq        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -102,6 +103,13 @@ impl Inbox {
             .with_context(|| format!("cannot open the Inbox at {}", path.display()))?;
         connection
             .busy_timeout(WRITER_WAIT)
+            .context("cannot set up the Inbox")?;
+        // Foreign key enforcement is per connection and the bundled SQLite's default is what
+        // rusqlite ships; setting it here keeps SCHEMA's REFERENCES enforced whatever the
+        // build default is (snailbox-8ly.1.22). It is set outside any transaction, where SQLite
+        // ignores it.
+        connection
+            .pragma_update(None, "foreign_keys", true)
             .context("cannot set up the Inbox")?;
         connection
             .execute_batch(SCHEMA)
@@ -407,3 +415,61 @@ macro_rules! list_sql {
 
 const LIST_OLDEST_SQL: &str = list_sql!("ASC");
 const LIST_NEWEST_SQL: &str = list_sql!("DESC");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A folder under the temp directory for one test's Inbox, removed on drop.
+    struct Folder(std::path::PathBuf);
+
+    impl Folder {
+        fn new(name: &str) -> Self {
+            let folder =
+                std::env::temp_dir().join(format!("snailbox-{name}-{}", std::process::id()));
+            Self(folder)
+        }
+    }
+
+    impl Drop for Folder {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn assert_foreign_key_refused(result: rusqlite::Result<usize>) {
+        let error = result.expect_err("the insert is refused");
+        assert!(
+            error.to_string().contains("FOREIGN KEY constraint failed"),
+            "the insert failed for another reason: {error}"
+        );
+    }
+
+    #[test]
+    fn a_message_whose_parent_names_no_message_is_refused() {
+        let folder = Folder::new("fk-parent");
+        let inbox = Inbox::open(&folder.0).expect("the Inbox opens");
+
+        let result = inbox.connection.execute(
+            "INSERT INTO messages (id, sender, subject, body, created_at, parent)
+             VALUES ('33333333-3333-4333-8333-333333333333', 'alice', 'hi', NULL,
+                     '2026-11-27T00:00:00Z', 'no-such-id')",
+            [],
+        );
+
+        assert_foreign_key_refused(result);
+    }
+
+    #[test]
+    fn a_receiver_whose_seq_names_no_message_is_refused() {
+        let folder = Folder::new("fk-receiver");
+        let inbox = Inbox::open(&folder.0).expect("the Inbox opens");
+
+        let result = inbox.connection.execute(
+            "INSERT INTO receivers (seq, position, name) VALUES (999, 0, 'bob')",
+            [],
+        );
+
+        assert_foreign_key_refused(result);
+    }
+}
