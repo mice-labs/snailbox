@@ -1,6 +1,7 @@
 //! The Inbox's database file as a release before this one left it: an Inbox written with the
 //! schema that had no indexes still opens and lists, and gains the indexes on that open, and
-//! still shows a Message's body and parent; and a
+//! still shows a Message's body and parent; an Inbox whose order column is still named
+//! `arrival` opens, lists in the same order and accepts new Messages after them; and a
 //! stored creation time that is not an RFC 3339 time, one with no offset included, fails `show`
 //! and `list` with an error saying so.
 //! These tests write the database file directly, since the command line cannot produce an
@@ -18,7 +19,7 @@ use rusqlite::Connection;
 // receivers.name existed.
 const SCHEMA_WITHOUT_INDEXES: &str = "
     CREATE TABLE messages (
-        arrival    INTEGER PRIMARY KEY AUTOINCREMENT,
+        seq        INTEGER PRIMARY KEY AUTOINCREMENT,
         id         TEXT NOT NULL UNIQUE,
         sender     TEXT NOT NULL,
         subject    TEXT NOT NULL,
@@ -27,10 +28,10 @@ const SCHEMA_WITHOUT_INDEXES: &str = "
         parent     TEXT REFERENCES messages (id)
     );
     CREATE TABLE receivers (
-        arrival  INTEGER NOT NULL REFERENCES messages (arrival),
+        seq      INTEGER NOT NULL REFERENCES messages (seq),
         position INTEGER NOT NULL,
         name     TEXT NOT NULL,
-        PRIMARY KEY (arrival, position)
+        PRIMARY KEY (seq, position)
     );
 ";
 
@@ -53,7 +54,7 @@ fn write_inbox_without_indexes(home: &Path, created_at: &str) {
             "INSERT INTO messages (id, sender, subject, body, created_at, parent) VALUES
                  ('{ROOT_ID}', 'alice', 'root', NULL, '{created_at}', NULL),
                  ('{REPLY_ID}', 'bob', 'reply', 'ok', '{created_at}', '{ROOT_ID}');
-             INSERT INTO receivers (arrival, position, name) VALUES
+             INSERT INTO receivers (seq, position, name) VALUES
                  (1, 0, 'bob'), (2, 0, 'alice');"
         ))
         .expect("the old rows insert");
@@ -126,6 +127,63 @@ fn an_inbox_without_indexes_still_shows_body_and_parent() {
         serde_json::from_str(&stdout(&output)).expect("show --json prints JSON");
     assert_eq!(shown["body"], "ok");
     assert_eq!(shown["parent"], ROOT_ID);
+}
+
+// The schema as snailbox created it before the order column was named seq: the same tables with
+// `arrival` for the integer that orders the Messages and keys their Receivers.
+const SCHEMA_WITH_ARRIVAL_COLUMNS: &str = "
+    CREATE TABLE messages (
+        arrival    INTEGER PRIMARY KEY AUTOINCREMENT,
+        id         TEXT NOT NULL UNIQUE,
+        sender     TEXT NOT NULL,
+        subject    TEXT NOT NULL,
+        body       TEXT,
+        created_at TEXT NOT NULL,
+        parent     TEXT REFERENCES messages (id)
+    );
+    CREATE TABLE receivers (
+        arrival  INTEGER NOT NULL REFERENCES messages (arrival),
+        position INTEGER NOT NULL,
+        name     TEXT NOT NULL,
+        PRIMARY KEY (arrival, position)
+    );
+    INSERT INTO messages (id, sender, subject, body, created_at, parent) VALUES
+        ('11111111-1111-4111-8111-111111111111', 'alice', 'first', NULL, '2026-11-26T01:02:03Z', NULL),
+        ('22222222-2222-4222-8222-222222222222', 'bob', 'second', NULL, '2026-11-25T01:02:03Z', NULL);
+    INSERT INTO receivers (arrival, position, name) VALUES (1, 0, 'bob'), (2, 0, 'alice');
+";
+
+#[test]
+fn an_inbox_with_arrival_columns_keeps_its_order_and_accepts_new_messages() {
+    let home = TempFolder::new("file-arrival-columns");
+    Connection::open(database(home.path()))
+        .expect("the test can create the Inbox")
+        .execute_batch(SCHEMA_WITH_ARRIVAL_COLUMNS)
+        .expect("the old schema applies");
+
+    let before = snailbox(home.path(), &["list", "--json"]);
+    assert!(before.status.success(), "list failed: {}", stderr(&before));
+    assert!(before.stderr.is_empty(), "stderr was {}", stderr(&before));
+    let new_id = create(
+        home.path(),
+        &["--from", "carol", "--to", "alice", "--subject", "third"],
+    );
+    let after = snailbox(home.path(), &["list", "--json"]);
+
+    assert!(after.status.success(), "list failed: {}", stderr(&after));
+    assert!(after.stderr.is_empty(), "stderr was {}", stderr(&after));
+    let ids = |output: &std::process::Output| -> Vec<String> {
+        let listed: serde_json::Value =
+            serde_json::from_str(&stdout(output)).expect("list --json prints JSON");
+        listed["messages"]
+            .as_array()
+            .expect("messages is an array")
+            .iter()
+            .map(|message| message["id"].as_str().expect("an id").to_string())
+            .collect()
+    };
+    assert_eq!(ids(&before), [ROOT_ID, REPLY_ID]);
+    assert_eq!(ids(&after), [ROOT_ID, REPLY_ID, new_id.as_str()]);
 }
 
 #[test]

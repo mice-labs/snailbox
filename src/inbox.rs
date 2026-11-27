@@ -19,7 +19,7 @@ const DATABASE_FILE: &str = "inbox.sqlite3";
 // rather than left to rusqlite's default so the guarantee does not move with the dependency.
 const WRITER_WAIT: Duration = Duration::from_secs(30);
 
-// `arrival` is the Inbox's own order (ADR 0001), assigned by the insert itself.
+// `seq` is the Inbox's own sequence number (ADR 0001), assigned by the insert itself.
 // AUTOINCREMENT keeps it from ever reusing a number, so a Message stored later always sorts
 // later. `created_at` is RFC 3339 text in UTC, since SQLite has no date type. The indexes are
 // IF NOT EXISTS so an Inbox created before they existed gains them on its next open, with no
@@ -27,7 +27,7 @@ const WRITER_WAIT: Duration = Duration::from_secs(30);
 // the table.
 const SCHEMA: &str = "
     CREATE TABLE IF NOT EXISTS messages (
-        arrival    INTEGER PRIMARY KEY AUTOINCREMENT,
+        seq        INTEGER PRIMARY KEY AUTOINCREMENT,
         id         TEXT NOT NULL UNIQUE,
         sender     TEXT NOT NULL,
         subject    TEXT NOT NULL,
@@ -36,15 +36,47 @@ const SCHEMA: &str = "
         parent     TEXT REFERENCES messages (id)
     );
     CREATE TABLE IF NOT EXISTS receivers (
-        arrival  INTEGER NOT NULL REFERENCES messages (arrival),
+        seq      INTEGER NOT NULL REFERENCES messages (seq),
         position INTEGER NOT NULL,
         name     TEXT NOT NULL,
-        PRIMARY KEY (arrival, position)
+        PRIMARY KEY (seq, position)
     );
     CREATE INDEX IF NOT EXISTS messages_by_parent ON messages (parent);
     CREATE INDEX IF NOT EXISTS messages_by_sender ON messages (sender);
     CREATE INDEX IF NOT EXISTS receivers_by_name ON receivers (name);
 ";
+
+/// Renames the `arrival` columns an Inbox created before the sequence number was named `seq`
+/// still has, keeping every stored value; SCHEMA's `IF NOT EXISTS` would leave them. An Inbox
+/// already renamed is left alone without taking the write lock, so `list` does not wait for
+/// writers. Otherwise the check is repeated inside the write transaction that renames, so two
+/// processes opening an old Inbox at once rename it once. SQLite's RENAME COLUMN also rewrites
+/// the `receivers` reference to `messages (arrival)`.
+fn rename_arrival_columns(connection: &mut Connection) -> Result<()> {
+    const TABLES: [&str; 2] = ["messages", "receivers"];
+    let has_arrival = |connection: &Connection, table: &str| -> rusqlite::Result<bool> {
+        connection.query_row(
+            "SELECT EXISTS (SELECT 1 FROM pragma_table_info(?1) WHERE name = 'arrival')",
+            [table],
+            |row| row.get(0),
+        )
+    };
+    let mut old = false;
+    for table in TABLES {
+        old |= has_arrival(connection, table)?;
+    }
+    if !old {
+        return Ok(());
+    }
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    for table in TABLES {
+        if has_arrival(&transaction, table)? {
+            transaction
+                .execute_batch(&format!("ALTER TABLE {table} RENAME COLUMN arrival TO seq"))?;
+        }
+    }
+    Ok(transaction.commit()?)
+}
 
 pub struct Inbox {
     connection: Connection,
@@ -98,11 +130,12 @@ impl Inbox {
     pub fn open(folder: &Path) -> Result<Self> {
         location::ensure_folder(folder)?;
         let path = folder.join(DATABASE_FILE);
-        let connection = Connection::open(&path)
+        let mut connection = Connection::open(&path)
             .with_context(|| format!("cannot open the Inbox at {}", path.display()))?;
         connection
             .busy_timeout(WRITER_WAIT)
             .context("cannot set up the Inbox")?;
+        rename_arrival_columns(&mut connection).context("cannot set up the Inbox")?;
         connection
             .execute_batch(SCHEMA)
             .context("cannot set up the Inbox")?;
@@ -139,12 +172,12 @@ impl Inbox {
                 ],
             )
             .context("cannot store the Message")?;
-        let arrival = transaction.last_insert_rowid();
+        let seq = transaction.last_insert_rowid();
         for (position, name) in new.receivers.iter().enumerate() {
             transaction
                 .execute(
-                    "INSERT INTO receivers (arrival, position, name) VALUES (?1, ?2, ?3)",
-                    params![arrival, position, name],
+                    "INSERT INTO receivers (seq, position, name) VALUES (?1, ?2, ?3)",
+                    params![seq, position, name],
                 )
                 .with_context(|| format!("cannot store the Message's Receiver {name}"))?;
         }
@@ -333,7 +366,7 @@ macro_rules! select_message {
             "SELECT messages.id, messages.sender, messages.subject, messages.body, ",
             "messages.created_at, messages.parent, ",
             "(SELECT json_group_array(name ORDER BY position) FROM receivers ",
-            "WHERE receivers.arrival = messages.arrival) AS receivers ",
+            "WHERE receivers.seq = messages.seq) AS receivers ",
             $tail
         )
     };
@@ -344,7 +377,7 @@ macro_rules! select_message {
 // id holds, so the range ends past every id with the prefix; a collation that ordered
 // otherwise would need another upper bound.
 const RESOLVE_SQL: &str =
-    select_message!("FROM messages WHERE id >= ?1 AND id < ?1 || char(1114111) ORDER BY arrival");
+    select_message!("FROM messages WHERE id >= ?1 AND id < ?1 || char(1114111) ORDER BY seq");
 
 /// The `list` query: ?1 Sender, ?2 Receiver, ?3 and ?4 the full ids of the --after and
 /// --before Messages, ?5, ?6 and ?7 the full ids that start the --upthread, --downthread and
@@ -368,25 +401,25 @@ macro_rules! list_sql {
                  UNION SELECT 'thread', ?7 WHERE ?7 IS NOT NULL
                  UNION SELECT downthread.flag, messages.id FROM messages
                        JOIN downthread ON messages.parent = downthread.id),
-             kept(arrival, matched) AS (
-                 SELECT arrival, count(*) OVER () FROM messages
+             kept(seq, matched) AS (
+                 SELECT seq, count(*) OVER () FROM messages
                  WHERE (?1 IS NULL OR sender = ?1)
                    AND (?2 IS NULL OR EXISTS (
                         SELECT 1 FROM receivers
-                        WHERE receivers.arrival = messages.arrival AND receivers.name = ?2))
-                   AND (?3 IS NULL OR arrival > (SELECT arrival FROM messages WHERE id = ?3))
-                   AND (?4 IS NULL OR arrival < (SELECT arrival FROM messages WHERE id = ?4))
+                        WHERE receivers.seq = messages.seq AND receivers.name = ?2))
+                   AND (?3 IS NULL OR seq > (SELECT seq FROM messages WHERE id = ?3))
+                   AND (?4 IS NULL OR seq < (SELECT seq FROM messages WHERE id = ?4))
                    AND (?5 IS NULL OR id IN (SELECT id FROM upthread WHERE flag = 'upthread'))
                    AND (?6 IS NULL OR id IN (SELECT id FROM downthread WHERE flag = 'downthread'))
                    AND (?7 IS NULL
                         OR id IN (SELECT id FROM upthread WHERE flag = 'thread')
                         OR id IN (SELECT id FROM downthread WHERE flag = 'thread'))
-                 ORDER BY arrival ",
+                 ORDER BY seq ",
             $order,
             " LIMIT coalesce(?8, -1)) ",
             select_message!(
-                ", kept.matched FROM kept JOIN messages ON messages.arrival = kept.arrival
-                 ORDER BY messages.arrival"
+                ", kept.matched FROM kept JOIN messages ON messages.seq = kept.seq
+                 ORDER BY messages.seq"
             )
         )
     };

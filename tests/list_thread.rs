@@ -1,7 +1,7 @@
 //! `list --upthread`, `--downthread` and `--thread`: each is relative to the named Message,
-//! always includes it, leaves out Replies on other branches, keeps arrival order and combines
-//! with `--to`, `--from`, `--after`, `--before`, `--limit` and each other. Each test runs the built binary against its own temporary
-//! `SNAILBOX_HOME`.
+//! always includes it, leaves out Replies on other branches, keeps sequence-number order and
+//! combines with `--to`, `--from`, `--after`, `--before`, `--limit` and each other. Each test
+//! runs the built binary against its own temporary `SNAILBOX_HOME`.
 
 mod common;
 

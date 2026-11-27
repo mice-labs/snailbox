@@ -66,7 +66,7 @@ fn list_returns_messages_oldest_stored_first() {
     // a creation time other than now, and while the system clock does not step back during
     // the test, creation times never run backwards, so a list sorted by creation time would
     // also pass here; if the clock does step back, this test can fail for that reason alone. That the order is the Inbox's own is pinned by
-    // ADR 0001 and the `ORDER BY arrival` in `Inbox::list`.
+    // ADR 0001 and the `ORDER BY seq` in `Inbox::list`.
     let subjects: Vec<String> = (0..12).map(|n| format!("message {}", 12 - n)).collect();
     for subject in &subjects {
         store(&home, "alice", &["bob"], subject);
@@ -99,7 +99,7 @@ fn a_tab_or_newline_in_a_field_does_not_break_the_list_line() {
 }
 
 #[test]
-fn list_json_returns_the_same_messages_with_full_ids_in_arrival_order() {
+fn list_json_returns_the_same_messages_with_full_ids_in_sequence_number_order() {
     let home = TempFolder::new("list-json");
     let first = store(&home, "alice", &["bob"], "first");
     let second = store(&home, "carol", &["bob", "dave"], "second");
@@ -206,14 +206,14 @@ fn a_filter_matching_nothing_prints_nothing_and_succeeds() {
 }
 
 #[test]
-fn list_help_states_arrival_order_as_a_guarantee() {
+fn list_help_states_sequence_number_order_as_a_guarantee() {
     let home = TempFolder::new("list-help");
 
     let output = snailbox(home.path(), &["list", "--help"]);
 
     assert!(output.status.success());
     let help = stdout(&output);
-    assert!(help.contains("arrival order"), "help was {help}");
+    assert!(help.contains("sequence-number order"), "help was {help}");
     assert!(help.contains("oldest first"), "help was {help}");
     assert!(!help.contains("--sort"), "help was {help}");
 }

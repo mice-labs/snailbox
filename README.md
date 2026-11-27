@@ -44,8 +44,8 @@ is also a valid id prefix: it is read as one, and matches a Message only when th
 id happens to start with it. There is no daemon: `create`, `show` and `list` each open the
 Inbox directly.
 
-`list` always returns Messages in arrival order, oldest first: the order this Inbox stored
-them, which creation times never decide (ADR 0001). There is no sort flag. Each Message's
+`list` always returns Messages in sequence-number order, oldest first: the order this Inbox
+stored them, which creation times never decide (ADR 0001). There is no sort flag. Each Message's
 text line is tab-separated: the first eight characters of the id, the creation time in local
 time, the Sender, the Receivers joined by commas and the subject; a tab or line break inside
 one of them prints as a space. A limit that left Messages out adds one last line with no tabs
@@ -68,7 +68,7 @@ to one that is not a Reply; `--downthread` adds every Reply beneath it at any de
 adds both. Replies on other branches are left out of all three. They take a Message id or a
 unique prefix, with the same errors as `--after` (several-match, and no-match with its hint
 that the flag takes a Message id, its next step and its all-digit exception), keep
-arrival order, and combine with every other filter; when given together they all apply. So
+sequence-number order, and combine with every other filter; when given together they all apply. So
 `--downthread <id> --after <last-seen-id>` returns only the new Replies beneath a Message.
 
 `--limit <n>` defaults to 50 and `--limit 0` removes it. When more Messages match than the
@@ -89,7 +89,7 @@ and writable by its owner only; a folder that already exists keeps its permissio
 
 Several processes can run `create` against one Inbox at once: SQLite lets one write at a
 time, and the others wait for it, up to 30 seconds each, before failing with "database is
-locked". Every Message they store gets its own place in arrival order, so paging with
+locked". Every Message they store gets its own place in sequence-number order, so paging with
 `--after` sees each one exactly once.
 
 ## Development
