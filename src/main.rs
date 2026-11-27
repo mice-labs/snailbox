@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Result;
-use clap::{Arg, CommandFactory, FromArgMatches, Parser, Subcommand};
+use clap::{ArgGroup, CommandFactory, FromArgMatches, Parser, Subcommand};
 
 use inbox::{BodySource, IdArgument, Inbox, Limit, ListFilter, NoMessageFor};
 use listing::{AFTER_FLAG, BEFORE_FLAG};
@@ -131,13 +131,16 @@ fn hint_id_error(error: anyhow::Error) -> anyhow::Error {
     )
 }
 
-/// Parses the command line. The Inbox decides which Body source flags conflict; this hands its
-/// decision to clap, so clap words the refusal and the usage line as it does any other.
+/// Parses the command line. The Inbox names the Body source flags; this puts them in one clap
+/// argument group that allows at most one, so clap words the refusal and the usage line as it
+/// does any other.
 fn parse() -> Cli {
     let command = Cli::command().mut_subcommand("create", |create| {
-        BodySource::conflicts().fold(create, |create, (flag, others)| {
-            create.mut_arg(flag, |arg: Arg| arg.conflicts_with_all(others))
-        })
+        create.group(
+            ArgGroup::new("body_source")
+                .args(BodySource::FLAGS)
+                .multiple(false),
+        )
     });
     Cli::from_arg_matches(&command.get_matches()).unwrap_or_else(|error| error.exit())
 }

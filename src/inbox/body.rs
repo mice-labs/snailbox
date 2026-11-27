@@ -1,9 +1,10 @@
 //! Where `create` takes a Message's body from, and the rules on it: at most one source, and a
 //! file or standard input that is not blank.
 //!
-//! The command-line layer hands `BodySource::conflicts` to its argument parser (clap 4), which
-//! refuses a caller who names two sources, in its own wording, before `from_flags` runs. So
-//! `from_flags` takes flags that name at most one source; it does not check that again.
+//! The command-line layer puts `BodySource::FLAGS` in one clap 4 argument group that allows at
+//! most one of them, so clap refuses a caller who names two sources, in its own wording, before
+//! `from_flags` runs. So `from_flags` takes flags that name at most one source; it does not
+//! check that again.
 
 use std::io::Read;
 use std::path::PathBuf;
@@ -18,23 +19,14 @@ pub enum BodySource {
 }
 
 impl BodySource {
-    /// The ids of the flags that each name a Body source, in the order `conflicts` ranks them:
-    /// the arguments `--body`, `--body-file` and `--stdin` of `create`.
-    const FLAGS: [&'static str; 3] = ["body", "body_file", "stdin"];
-
-    /// Each Body source flag's id with the flags that rank after it in `FLAGS`, which it cannot
-    /// be given with. A clap 4 command told each pair once, from the earlier flag, names the
-    /// pair in the order the caller typed it.
-    pub fn conflicts() -> impl Iterator<Item = (&'static str, &'static [&'static str])> {
-        Self::FLAGS
-            .iter()
-            .enumerate()
-            .map(|(position, flag)| (*flag, &Self::FLAGS[position + 1..]))
-    }
+    /// The ids of the flags that each name a Body source: the arguments `--body`, `--body-file`
+    /// and `--stdin` of `create`. The one-source rule is that at most one of them is given; the
+    /// command-line layer states it as a clap 4 argument group over these ids.
+    pub const FLAGS: [&'static str; 3] = ["body", "body_file", "stdin"];
 
     /// The source the caller's `--body`, `--body-file` and `--stdin` flags name, or `None` when
-    /// they name none. The caller has refused more than one (see `conflicts`); with several,
-    /// the first in `FLAGS` order wins.
+    /// they name none. The caller has refused more than one (the argument group over `FLAGS`);
+    /// with several, the first in `FLAGS` order wins.
     pub fn from_flags(
         body: Option<String>,
         body_file: Option<PathBuf>,
@@ -85,20 +77,6 @@ mod tests {
     #[test]
     fn no_body_source_means_no_body() {
         assert!(BodySource::from_flags(None, None, false).is_none());
-    }
-
-    #[test]
-    fn each_source_flag_conflicts_with_the_ones_after_it() {
-        let conflicts: Vec<_> = BodySource::conflicts().collect();
-
-        assert_eq!(
-            conflicts,
-            [
-                ("body", &["body_file", "stdin"][..]),
-                ("body_file", &["stdin"][..]),
-                ("stdin", &[][..]),
-            ]
-        );
     }
 
     #[test]
