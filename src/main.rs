@@ -62,7 +62,7 @@ enum Command {
         #[arg(long)]
         subject: String,
         #[command(flatten)]
-        body: BodyArgs,
+        body_source: BodyArgs,
         /// Store the Message as a Reply to this Message, named by its Message id or a unique
         /// prefix of it (not a date or time)
         #[arg(long, value_name = "ID")]
@@ -165,10 +165,10 @@ fn run(command: Command) -> Result<()> {
             from,
             to,
             subject,
-            body,
+            body_source,
             reply_to,
         } => {
-            let body = Option::<BodySource>::from(body)
+            let body = Option::<BodySource>::from(body_source)
                 .map(BodySource::read)
                 .transpose()?;
             let mut inbox = Inbox::open(&location::inbox_folder()?)?;
@@ -241,27 +241,37 @@ mod tests {
     }
 
     #[test]
-    fn each_body_flag_names_its_source() {
+    fn the_body_flag_names_a_text_source() {
         let text = BodyArgs {
             body: Some("hi".into()),
             body_file: None,
             stdin: false,
         };
+
+        assert!(matches!(Option::<BodySource>::from(text), Some(BodySource::Text(t)) if t == "hi"));
+    }
+
+    #[test]
+    fn the_body_file_flag_names_a_file_source() {
         let file = BodyArgs {
             body: None,
             body_file: Some("f.txt".into()),
             stdin: false,
         };
+
+        assert!(
+            matches!(Option::<BodySource>::from(file), Some(BodySource::File(p)) if p.ends_with("f.txt"))
+        );
+    }
+
+    #[test]
+    fn the_stdin_flag_names_a_stdin_source() {
         let stdin = BodyArgs {
             body: None,
             body_file: None,
             stdin: true,
         };
 
-        assert!(matches!(Option::<BodySource>::from(text), Some(BodySource::Text(t)) if t == "hi"));
-        assert!(
-            matches!(Option::<BodySource>::from(file), Some(BodySource::File(p)) if p.ends_with("f.txt"))
-        );
         assert!(matches!(
             Option::<BodySource>::from(stdin),
             Some(BodySource::Stdin)
