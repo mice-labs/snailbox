@@ -2,13 +2,13 @@
 status: accepted
 ---
 
-# Random Message ids, with arrival order kept per inbox
+# Random Message ids, with a sequence number kept per inbox
 
 A Message's id is a random UUID (version 4) that snailbox generates when the Message is
 created, so the id stays unique when messages move between machines. Each inbox separately
-records the order in which it stored its messages; `list` returns that order, and
-`list --after <id>` and `list --before <id>` return what this inbox stored after or before
-that Message. The creation
+gives each message a sequence number when it stores it, and `list` returns messages in
+sequence-number order; `list --after <id>` and `list --before <id>` return what this inbox
+stored after or before that Message. The creation
 timestamp is displayed and never used for ordering. Commands accept any id prefix that
 matches exactly one Message in the inbox.
 
@@ -26,7 +26,7 @@ matches exactly one Message in the inbox.
 
 ## Consequences
 
-- An inbox's arrival order belongs to that inbox. After a migration or merge the receiving
-  inbox assigns its own order, so a Message created last week can arrive today and still
+- An inbox's sequence numbers belong to that inbox. After a migration or merge the receiving
+  inbox assigns its own, so a Message created last week can be stored today and still
   appears after a consumer's `--after` position.
 - An id says nothing about when its Message was created; readers use the timestamp for that.

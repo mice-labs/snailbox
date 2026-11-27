@@ -14,8 +14,8 @@ person sending or receiving there.
 _Avoid_: mailbox, queue, database
 
 **Message**:
-A unit of content in the inbox, with a subject and a body, addressed from one sender to one
-or more receivers.
+A unit of content in the Inbox, with a subject and an optional body, addressed from one
+Sender to one or more Receivers.
 _Avoid_: event, item, mail, notification
 
 **Sender**:
@@ -26,6 +26,22 @@ _Avoid_: author, user, account
 **Receiver**:
 A name a Message is addressed to. Any name can be a Receiver without being registered first.
 _Avoid_: recipient, subscriber, consumer
+
+**Sequence number**:
+The integer this Inbox gives each Message when it stores it. It is per Inbox and never reused,
+and it is never a date or time. `list` always returns Messages in sequence-number order,
+oldest first, and the order never depends on their creation times.
+_Avoid_: arrival order, creation order, chronological order, sort order
+
+**Cursor**:
+A Message id, or a unique prefix of one, that `list --after` or `--before` takes as a position
+in sequence-number order. It is never a date or time.
+_Avoid_: offset, timestamp, page token
+
+**Body source**:
+Where a Message's body is taken from when it is created: the text given directly, a file, or
+standard input. A Message has at most one, and none means a Message with no body.
+_Avoid_: body input
 
 **Reply**:
 A Message that answers one other Message, its **parent**.
