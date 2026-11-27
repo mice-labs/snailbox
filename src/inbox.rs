@@ -139,15 +139,11 @@ impl Inbox {
                 ],
             )
             .context("cannot store the Message")?;
-        let arrival = transaction.last_insert_rowid();
-        for (position, name) in new.receivers.iter().enumerate() {
-            transaction
-                .execute(
-                    "INSERT INTO receivers (arrival, position, name) VALUES (?1, ?2, ?3)",
-                    params![arrival, position, name],
-                )
-                .with_context(|| format!("cannot store the Message's Receiver {name}"))?;
-        }
+        let receivers =
+            serde_json::to_string(&new.receivers).context("cannot store the Message")?;
+        transaction
+            .execute(INSERT_RECEIVERS_SQL, params![receivers])
+            .context("cannot store the Message")?;
         transaction.commit().context("cannot store the Message")?;
         Ok(id)
     }
@@ -338,6 +334,11 @@ macro_rules! select_message {
         )
     };
 }
+
+// ?1 is the Receivers as a JSON array; json_each's key is the index, which is the position.
+// last_insert_rowid() is the Message just inserted on this connection.
+const INSERT_RECEIVERS_SQL: &str = "INSERT INTO receivers (arrival, position, name)
+     SELECT last_insert_rowid(), key, value FROM json_each(?1)";
 
 // A prefix match written as a range on id, the form the unique index on id serves. Under the
 // BINARY collation id has (SCHEMA gives it no other), U+10FFFF sorts after every character an
