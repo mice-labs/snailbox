@@ -46,40 +46,6 @@ const SCHEMA: &str = "
     CREATE INDEX IF NOT EXISTS receivers_by_name ON receivers (name);
 ";
 
-/// Renames the `arrival` columns an Inbox created before the sequence number was named `seq`
-/// still has, keeping every stored value; SCHEMA's `IF NOT EXISTS` would leave them. An Inbox
-/// already renamed is left alone without taking the write lock, so `list` does not wait for
-/// writers. Otherwise the check is repeated inside the write transaction that renames, so two
-/// processes opening an old Inbox at once rename it once. SQLite's RENAME COLUMN also rewrites
-/// the `receivers` reference to `messages (arrival)`, which holds only while the connection's
-/// `legacy_alter_table` is off (SQLite's default, and this code never turns it on); with it on,
-/// the reference would keep naming the old column.
-fn rename_arrival_columns(connection: &mut Connection) -> Result<()> {
-    const TABLES: [&str; 2] = ["messages", "receivers"];
-    let has_arrival = |connection: &Connection, table: &str| -> rusqlite::Result<bool> {
-        connection.query_row(
-            "SELECT EXISTS (SELECT 1 FROM pragma_table_info(?1) WHERE name = 'arrival')",
-            [table],
-            |row| row.get(0),
-        )
-    };
-    let mut needs_rename = false;
-    for table in TABLES {
-        needs_rename |= has_arrival(connection, table)?;
-    }
-    if !needs_rename {
-        return Ok(());
-    }
-    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    for table in TABLES {
-        if has_arrival(&transaction, table)? {
-            transaction
-                .execute_batch(&format!("ALTER TABLE {table} RENAME COLUMN arrival TO seq"))?;
-        }
-    }
-    Ok(transaction.commit()?)
-}
-
 pub struct Inbox {
     connection: Connection,
 }
@@ -132,12 +98,11 @@ impl Inbox {
     pub fn open(folder: &Path) -> Result<Self> {
         location::ensure_folder(folder)?;
         let path = folder.join(DATABASE_FILE);
-        let mut connection = Connection::open(&path)
+        let connection = Connection::open(&path)
             .with_context(|| format!("cannot open the Inbox at {}", path.display()))?;
         connection
             .busy_timeout(WRITER_WAIT)
             .context("cannot set up the Inbox")?;
-        rename_arrival_columns(&mut connection).context("cannot set up the Inbox")?;
         connection
             .execute_batch(SCHEMA)
             .context("cannot set up the Inbox")?;

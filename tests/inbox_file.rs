@@ -1,9 +1,7 @@
 //! The Inbox's database file as a release before this one left it: an Inbox written with the
 //! schema that had no indexes still opens and lists, and gains the indexes on that open, and
-//! still shows a Message's body and parent; an Inbox whose order column is still named
-//! `arrival` opens, lists in the same order and accepts new Messages after them; and a
-//! stored creation time that is not an RFC 3339 time, one with no offset included, fails `show`
-//! and `list` with an error saying so.
+//! still shows a Message's body and parent; and a stored creation time that is not an RFC 3339
+//! time, one with no offset included, fails `show` and `list` with an error saying so.
 //! These tests write the database file directly, since the command line cannot produce an
 //! index-less Inbox or a malformed time; everything they check is the built binary's output,
 //! apart from the index names, which only the file shows.
@@ -12,12 +10,11 @@ mod common;
 
 use std::path::{Path, PathBuf};
 
-use common::{create, listed_ids, snailbox, stderr, stdout, TempFolder};
+use common::{create, snailbox, stderr, stdout, TempFolder};
 use rusqlite::Connection;
 
 // The tables of today's schema with none of the indexes on messages.parent, messages.sender
-// and receivers.name, standing in for an Inbox created before they existed. That Inbox named
-// its order column `arrival`, not `seq`; the rename has its own test below.
+// and receivers.name, standing in for an Inbox created before they existed.
 const SCHEMA_WITHOUT_INDEXES: &str = "
     CREATE TABLE messages (
         seq        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -128,59 +125,6 @@ fn an_inbox_without_indexes_still_shows_body_and_parent() {
         serde_json::from_str(&stdout(&output)).expect("show --json prints JSON");
     assert_eq!(shown["body"], "ok");
     assert_eq!(shown["parent"], ROOT_ID);
-}
-
-// The schema as snailbox created it before the order column was named seq: the same tables with
-// `arrival` for the integer that orders the Messages and keys their Receivers.
-const FIRST_ID: &str = "33333333-3333-4333-8333-333333333333";
-const SECOND_ID: &str = "44444444-4444-4444-8444-444444444444";
-
-fn schema_with_arrival_columns() -> String {
-    format!(
-        "
-    CREATE TABLE messages (
-        arrival    INTEGER PRIMARY KEY AUTOINCREMENT,
-        id         TEXT NOT NULL UNIQUE,
-        sender     TEXT NOT NULL,
-        subject    TEXT NOT NULL,
-        body       TEXT,
-        created_at TEXT NOT NULL,
-        parent     TEXT REFERENCES messages (id)
-    );
-    CREATE TABLE receivers (
-        arrival  INTEGER NOT NULL REFERENCES messages (arrival),
-        position INTEGER NOT NULL,
-        name     TEXT NOT NULL,
-        PRIMARY KEY (arrival, position)
-    );
-    INSERT INTO messages (id, sender, subject, body, created_at, parent) VALUES
-        ('{FIRST_ID}', 'alice', 'first', NULL, '2026-11-26T01:02:03Z', NULL),
-        ('{SECOND_ID}', 'bob', 'second', NULL, '2026-11-25T01:02:03Z', NULL);
-    INSERT INTO receivers (arrival, position, name) VALUES (1, 0, 'bob'), (2, 0, 'alice');
-"
-    )
-}
-
-#[test]
-fn an_inbox_with_arrival_columns_keeps_its_order_and_accepts_new_messages() {
-    let home = TempFolder::new("file-arrival-columns");
-    Connection::open(database(home.path()))
-        .expect("the test can create the Inbox")
-        .execute_batch(&schema_with_arrival_columns())
-        .expect("the old schema applies");
-
-    let before = listed_ids(&home, &[]);
-    let new_id = create(
-        home.path(),
-        &["--from", "carol", "--to", "alice", "--subject", "third"],
-    );
-    let after = listed_ids(&home, &[]);
-    let to_alice = listed_ids(&home, &["--to", "alice"]);
-
-    assert_eq!(before, [FIRST_ID, SECOND_ID]);
-    assert_eq!(after, [FIRST_ID, SECOND_ID, new_id.as_str()]);
-    // The receivers rows still match their Messages after the rename.
-    assert_eq!(to_alice, [SECOND_ID, new_id.as_str()]);
 }
 
 #[test]
