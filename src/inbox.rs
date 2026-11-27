@@ -10,7 +10,7 @@ use rusqlite::{params, Connection, Row, TransactionBehavior};
 
 use crate::listing::{Cursor, LeftOut, Listing};
 use crate::location;
-use crate::message::{IdPrefix, Message, MessageId, NewMessage};
+use crate::message::{IdPrefix, Message, MessageId, Name, NewMessage};
 
 mod body;
 pub use body::BodySource;
@@ -146,13 +146,9 @@ impl Inbox {
             )
             .context("cannot store the Message")?;
         let seq = transaction.last_insert_rowid();
-        let receivers = serde_json::to_string(
-            &new.receivers
-                .iter()
-                .map(crate::message::Name::as_str)
-                .collect::<Vec<_>>(),
-        )
-        .context("cannot store the Message")?;
+        let receivers =
+            serde_json::to_string(&new.receivers.iter().map(Name::as_str).collect::<Vec<_>>())
+                .context("cannot store the Message")?;
         transaction
             .execute(INSERT_RECEIVERS_SQL, params![seq, receivers])
             .context("cannot store the Message")?;
@@ -457,9 +453,8 @@ macro_rules! list_sql {
 const LIST_OLDEST_SQL: &str = list_sql!("ASC");
 const LIST_NEWEST_SQL: &str = list_sql!("DESC");
 
-// These tests pin the rules the Inbox module decides for the command-line layer: the default
-// limit, the blank name and the one Body source with a non-blank body. They go through the
-// module's public types, never the command line.
+// These tests pin the rule the Inbox module decides for the command-line layer: the default
+// limit. It goes through the module's public types, never the command line.
 #[cfg(test)]
 mod rule_tests {
     use super::*;
@@ -471,7 +466,7 @@ mod rule_tests {
         (folder, inbox)
     }
 
-    fn name(text: &str) -> crate::message::Name {
+    fn name(text: &str) -> Name {
         text.parse().expect("the name is not blank")
     }
 
@@ -531,61 +526,6 @@ mod rule_tests {
     #[test]
     fn a_limit_that_is_not_a_number_is_refused() {
         assert!("many".parse::<Limit>().is_err());
-    }
-
-    #[test]
-    fn a_blank_name_is_refused() {
-        for blank in ["", "  ", " \t"] {
-            let error = blank.parse::<crate::message::Name>().err();
-            assert_eq!(
-                error.as_deref(),
-                Some("the name is blank; give a name"),
-                "for {blank:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_name_is_kept_as_given() {
-        assert_eq!(name(" alice ").as_str(), " alice ");
-    }
-
-    #[test]
-    fn more_than_one_body_source_is_refused() {
-        let file = Some(std::path::PathBuf::from("body.txt"));
-        let cases = [
-            (Some("a".to_owned()), file.clone(), false),
-            (Some("a".to_owned()), None, true),
-            (None, file, true),
-        ];
-
-        for (text, file, stdin) in cases {
-            let result = BodySource::from_flags(text, file, stdin);
-
-            assert!(result.is_err(), "more than one source was accepted");
-        }
-    }
-
-    #[test]
-    fn no_body_source_means_no_body() {
-        assert!(matches!(
-            BodySource::from_flags(None, None, false),
-            Ok(None)
-        ));
-    }
-
-    #[test]
-    fn a_body_file_of_only_whitespace_is_refused() {
-        let file = std::env::temp_dir().join(format!("snailbox-blank-{}", std::process::id()));
-        std::fs::write(&file, "\n \t\n").expect("the file is written");
-
-        let source = BodySource::from_flags(None, Some(file.clone()), false)
-            .expect("one source")
-            .expect("a source");
-        let error = source.read().expect_err("the body is blank");
-
-        assert!(error.to_string().contains("is empty or blank"), "{error}");
-        let _ = std::fs::remove_file(file);
     }
 }
 

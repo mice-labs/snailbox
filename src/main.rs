@@ -7,8 +7,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Result;
-use clap::error::ErrorKind;
-use clap::{CommandFactory, Parser, Subcommand};
+use clap::{Arg, CommandFactory, FromArgMatches, Parser, Subcommand};
 
 use inbox::{BodySource, IdArgument, Inbox, Limit, ListFilter, NoMessageFor};
 use listing::{AFTER_FLAG, BEFORE_FLAG};
@@ -132,8 +131,21 @@ fn hint_id_error(error: anyhow::Error) -> anyhow::Error {
     )
 }
 
+/// Parses the command line. The Inbox decides which Body source flags conflict; this hands its
+/// decision to clap, so clap words the refusal and the usage line as it does any other.
+fn parse() -> Cli {
+    let command = Cli::command().mut_subcommand("create", |create| {
+        BodySource::FLAGS.iter().fold(create, |create, flag| {
+            create.mut_arg(*flag, |arg: Arg| {
+                arg.conflicts_with_all(BodySource::conflicts_with(flag))
+            })
+        })
+    });
+    Cli::from_arg_matches(&command.get_matches()).unwrap_or_else(|error| error.exit())
+}
+
 fn main() -> ExitCode {
-    match run(Cli::parse().command) {
+    match run(parse().command) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("snailbox: {error:#}");
@@ -153,14 +165,7 @@ fn run(command: Command) -> Result<()> {
             stdin,
             reply_to,
         } => {
-            let body = BodySource::from_flags(body, body_file, stdin)
-                .unwrap_or_else(|conflict| {
-                    Cli::command()
-                        .find_subcommand_mut("create")
-                        .expect("create is a subcommand")
-                        .error(ErrorKind::ArgumentConflict, conflict)
-                        .exit()
-                })
+            let body = BodySource::from_flags(body, body_file, stdin)?
                 .map(BodySource::read)
                 .transpose()?;
             let mut inbox = Inbox::open(&location::inbox_folder()?)?;

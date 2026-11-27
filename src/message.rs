@@ -184,3 +184,27 @@ impl Message {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_blank_name_is_refused() {
+        for blank in ["", "  ", " \t"] {
+            let error = blank.parse::<Name>().err();
+            assert_eq!(
+                error.as_deref(),
+                Some("the name is blank; give a name"),
+                "for {blank:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_name_is_kept_as_given() {
+        let name: Name = " alice ".parse().expect("the name is not blank");
+
+        assert_eq!(name.as_str(), " alice ");
+    }
+}
