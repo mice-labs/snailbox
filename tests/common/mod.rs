@@ -124,6 +124,28 @@ pub fn listed_subjects(home: &TempFolder, args: &[&str]) -> Vec<String> {
         .collect()
 }
 
+/// The Messages `list --json` printed with `args`, in the order printed, failing the test unless
+/// it succeeded with nothing on standard error.
+pub fn listed_messages(home: &TempFolder, args: &[&str]) -> Vec<serde_json::Value> {
+    let output = snailbox(home.path(), &[&["list", "--json"], args].concat());
+    assert!(output.status.success(), "list failed: {}", stderr(&output));
+    assert!(output.stderr.is_empty(), "stderr was {}", stderr(&output));
+    let mut listed: serde_json::Value =
+        serde_json::from_str(&stdout(&output)).expect("list --json prints JSON");
+    match listed["messages"].take() {
+        serde_json::Value::Array(messages) => messages,
+        other => panic!("messages is not an array: {other}"),
+    }
+}
+
+/// The full ids of the Messages `listed_messages` returns with `args`, in the order printed.
+pub fn listed_ids(home: &TempFolder, args: &[&str]) -> Vec<String> {
+    listed_messages(home, args)
+        .iter()
+        .map(|message| message["id"].as_str().expect("an id").to_owned())
+        .collect()
+}
+
 /// What `list` printed on standard error with `args`, failing the test unless it exited
 /// non-zero with nothing on standard output.
 pub fn failed_list(home: &TempFolder, args: &[&str]) -> String {

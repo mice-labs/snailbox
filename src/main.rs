@@ -55,8 +55,8 @@ enum Command {
     },
     /// List Messages in sequence-number order, oldest first
     ///
-    /// Messages always come in sequence-number order, oldest first: the order this Inbox stored them
-    /// in, never decided by their creation times. There is no sort flag.
+    /// Messages always come in sequence-number order, oldest first: the order this Inbox stored
+    /// them in, never decided by their creation times. There is no sort flag.
     List {
         /// Only Messages with this name among their Receivers
         #[arg(long)]

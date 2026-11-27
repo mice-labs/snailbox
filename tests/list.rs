@@ -4,7 +4,9 @@
 
 mod common;
 
-use common::{create, listed_subjects, snailbox, stderr, stdout, store, TempFolder};
+use common::{
+    create, listed_messages, listed_subjects, snailbox, stderr, stdout, store, TempFolder,
+};
 use serde_json::Value;
 
 #[test]
@@ -140,13 +142,10 @@ fn list_json_messages_carry_no_body_or_parent_while_show_json_does() {
         ],
     );
 
-    let listed = snailbox(home.path(), &["list", "--json"]);
+    let messages = listed_messages(&home, &[]);
 
-    assert!(listed.status.success(), "list failed: {}", stderr(&listed));
-    let value: Value = serde_json::from_str(&stdout(&listed)).expect("stdout is JSON");
-    let messages = value["messages"].as_array().expect("a messages array");
     assert_eq!(messages.len(), 2);
-    for message in messages {
+    for message in &messages {
         let mut keys: Vec<_> = message.as_object().expect("an object").keys().collect();
         keys.sort();
         assert_eq!(keys, ["created_at", "from", "id", "subject", "to"]);

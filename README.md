@@ -68,8 +68,9 @@ to one that is not a Reply; `--downthread` adds every Reply beneath it at any de
 adds both. Replies on other branches are left out of all three. They take a Message id or a
 unique prefix, with the same errors as `--after` (several-match, and no-match with its hint
 that the flag takes a Message id, its next step and its all-digit exception), keep
-sequence-number order, and combine with every other filter; when given together they all apply. So
-`--downthread <id> --after <last-seen-id>` returns only the new Replies beneath a Message.
+sequence-number order, and combine with every other filter; when given together they all
+apply. So `--downthread <id> --after <last-seen-id>` returns only the new Replies beneath a
+Message.
 
 `--limit <n>` defaults to 50 and `--limit 0` removes it. When more Messages match than the
 limit, `--after` (alone or with `--before`) returns the first n after that Message,

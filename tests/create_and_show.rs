@@ -193,6 +193,56 @@ fn a_receiver_name_holding_a_comma_comes_back_whole_and_in_order() {
     assert_eq!(shown["to"], serde_json::json!(["bob", "Smith, Jane"]));
 }
 
+/// Stores a Message from alice to `receivers`, one `--to` each in the order given, and returns
+/// the `to` array `show --json` prints for it, failing the test unless `create` and `show` each
+/// succeed with nothing on standard error.
+fn shown_receivers(home: &TempFolder, receivers: &[&str]) -> Value {
+    let mut args = vec!["create", "--from", "alice", "--subject", "hello"];
+    for name in receivers {
+        args.extend(["--to", name]);
+    }
+    let created = snailbox(home.path(), &args);
+    assert!(created.stderr.is_empty(), "stderr was {}", stderr(&created));
+    let id = common::id_from(&created);
+
+    let output = snailbox(home.path(), &["show", &id, "--json"]);
+
+    assert!(output.status.success(), "show failed: {}", stderr(&output));
+    assert!(output.stderr.is_empty(), "stderr was {}", stderr(&output));
+    let shown: Value = serde_json::from_str(&stdout(&output)).expect("show --json prints JSON");
+    shown["to"].clone()
+}
+
+#[test]
+fn three_receivers_come_back_in_the_order_given() {
+    let home = TempFolder::new("show-three-receivers");
+
+    let to = shown_receivers(&home, &["bob", "carol", "dave"]);
+
+    assert_eq!(to, serde_json::json!(["bob", "carol", "dave"]));
+}
+
+#[test]
+fn two_messages_with_several_receivers_each_keep_their_own() {
+    let home = TempFolder::new("show-two-multi-receiver");
+
+    let first = shown_receivers(&home, &["bob", "carol"]);
+    let second = shown_receivers(&home, &["dave", "erin", "frank"]);
+
+    assert_eq!(first, serde_json::json!(["bob", "carol"]));
+    assert_eq!(second, serde_json::json!(["dave", "erin", "frank"]));
+}
+
+#[test]
+fn a_receiver_named_twice_is_stored_twice_in_the_order_given() {
+    let home = TempFolder::new("show-duplicate-receivers");
+    shown_receivers(&home, &["zed"]);
+
+    let to = shown_receivers(&home, &["bob", "carol", "bob"]);
+
+    assert_eq!(to, serde_json::json!(["bob", "carol", "bob"]));
+}
+
 #[test]
 fn create_that_cannot_write_says_it_cannot_store_the_message() {
     let home = TempFolder::new("create-read-only");

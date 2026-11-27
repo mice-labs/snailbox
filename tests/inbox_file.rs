@@ -12,11 +12,12 @@ mod common;
 
 use std::path::{Path, PathBuf};
 
-use common::{create, snailbox, stderr, stdout, TempFolder};
+use common::{create, listed_ids, snailbox, stderr, stdout, TempFolder};
 use rusqlite::Connection;
 
-// The schema as snailbox created it before the indexes on messages.parent, messages.sender and
-// receivers.name existed.
+// The tables of today's schema with none of the indexes on messages.parent, messages.sender
+// and receivers.name, standing in for an Inbox created before they existed. That Inbox named
+// its order column `arrival`, not `seq`; the rename has its own test below.
 const SCHEMA_WITHOUT_INDEXES: &str = "
     CREATE TABLE messages (
         seq        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -168,42 +169,18 @@ fn an_inbox_with_arrival_columns_keeps_its_order_and_accepts_new_messages() {
         .execute_batch(&schema_with_arrival_columns())
         .expect("the old schema applies");
 
-    let before = snailbox(home.path(), &["list", "--json"]);
-    assert!(before.status.success(), "list failed: {}", stderr(&before));
-    assert!(before.stderr.is_empty(), "stderr was {}", stderr(&before));
+    let before = listed_ids(&home, &[]);
     let new_id = create(
         home.path(),
         &["--from", "carol", "--to", "alice", "--subject", "third"],
     );
-    let after = snailbox(home.path(), &["list", "--json"]);
-    let to_alice = snailbox(home.path(), &["list", "--to", "alice", "--json"]);
+    let after = listed_ids(&home, &[]);
+    let to_alice = listed_ids(&home, &["--to", "alice"]);
 
-    assert!(after.status.success(), "list failed: {}", stderr(&after));
-    assert!(after.stderr.is_empty(), "stderr was {}", stderr(&after));
-    assert!(
-        to_alice.status.success(),
-        "list --to failed: {}",
-        stderr(&to_alice)
-    );
-    assert!(
-        to_alice.stderr.is_empty(),
-        "stderr was {}",
-        stderr(&to_alice)
-    );
-    let ids = |output: &std::process::Output| -> Vec<String> {
-        let listed: serde_json::Value =
-            serde_json::from_str(&stdout(output)).expect("list --json prints JSON");
-        listed["messages"]
-            .as_array()
-            .expect("messages is an array")
-            .iter()
-            .map(|message| message["id"].as_str().expect("an id").to_string())
-            .collect()
-    };
-    assert_eq!(ids(&before), [FIRST_ID, SECOND_ID]);
-    assert_eq!(ids(&after), [FIRST_ID, SECOND_ID, new_id.as_str()]);
+    assert_eq!(before, [FIRST_ID, SECOND_ID]);
+    assert_eq!(after, [FIRST_ID, SECOND_ID, new_id.as_str()]);
     // The receivers rows still match their Messages after the rename.
-    assert_eq!(ids(&to_alice), [SECOND_ID, new_id.as_str()]);
+    assert_eq!(to_alice, [SECOND_ID, new_id.as_str()]);
 }
 
 #[test]
