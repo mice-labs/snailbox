@@ -74,11 +74,11 @@ enum Command {
     /// them in, never decided by their creation times. There is no sort flag.
     List {
         /// Only Messages with this name among their Receivers
-        #[arg(long)]
-        to: Option<String>,
+        #[arg(long, value_parser = str::parse::<Name>)]
+        to: Option<Name>,
         /// Only Messages from this Sender
-        #[arg(long)]
-        from: Option<String>,
+        #[arg(long, value_parser = str::parse::<Name>)]
+        from: Option<Name>,
         /// Only Messages stored after this one, named by its Message id or a unique prefix of it
         /// (not a date or time)
         #[arg(long, value_name = "ID")]

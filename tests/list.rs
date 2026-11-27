@@ -247,3 +247,46 @@ fn the_short_help_of_list_and_of_snailbox_says_oldest_first() {
         );
     }
 }
+
+#[test]
+fn list_refuses_a_blank_to_or_from_as_create_does() {
+    let home = TempFolder::new("list-blank-name");
+    store(&home, "alice", &["bob"], "lunch?");
+
+    for args in [
+        &["list", "--to", ""][..],
+        &["list", "--to", "  "][..],
+        &["list", "--from", ""][..],
+        &["list", "--from", " \t"][..],
+    ] {
+        let output = snailbox(home.path(), args);
+
+        assert!(!output.status.success(), "{args:?} succeeded");
+        assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
+        assert!(
+            stderr(&output).contains("the name is blank; give a name"),
+            "stderr for {args:?} was {}",
+            stderr(&output)
+        );
+    }
+}
+
+#[test]
+fn list_with_a_non_blank_name_that_matches_nothing_succeeds_with_an_empty_listing() {
+    let home = TempFolder::new("list-unmatched-name");
+    store(&home, "alice", &["bob"], "lunch?");
+
+    for args in [
+        &["list", "--to", "nobody"][..],
+        &["list", "--from", "nobody"][..],
+    ] {
+        let output = snailbox(home.path(), args);
+
+        assert!(
+            output.status.success(),
+            "{args:?} failed: {}",
+            stderr(&output)
+        );
+        assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
+    }
+}
