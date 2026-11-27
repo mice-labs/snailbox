@@ -1,0 +1,25 @@
+name: check
+
+# Runs `make check` (cargo fmt --check, clippy with warnings denied, the tests and
+# the Markdown checks) on every pull request and every push to main, so a failure
+# shows as a red check on the PR. It uses the stable Rust toolchain preinstalled
+# on GitHub's ubuntu runners, updated to the latest stable at run time; pin a
+# version in the `rustup` line to freeze it.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Install Rust with rustfmt and clippy
+        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy --no-self-update
+      - name: make check
+        run: make check

@@ -97,4 +97,5 @@ locked". Every Message they store gets its own place in sequence-number order, s
 
 `cargo build` builds the `snailbox` binary; `snailbox --help` lists its commands.
 `make check` runs the formatter check, the linter (warnings fail it), the tests and the
-Markdown checks.
+Markdown checks. The GitHub workflow `.github/workflows/check.yml` runs the same command on
+every pull request and every push to `main`, with the latest stable Rust toolchain.
