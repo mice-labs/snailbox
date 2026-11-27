@@ -4,6 +4,8 @@
 use std::fmt;
 
 use chrono::{DateTime, Local, SecondsFormat, Utc};
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
+use serde::{Deserialize, Serialize, Serializer};
 use uuid::Uuid;
 
 /// A Message's id: a random UUID version 4 that snailbox generates (ADR 0001).
@@ -32,6 +34,27 @@ impl std::str::FromStr for MessageId {
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         Uuid::parse_str(text).map(Self)
+    }
+}
+
+impl Serialize for MessageId {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
+}
+
+impl ToSql for MessageId {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::from(self.to_string()))
+    }
+}
+
+impl FromSql for MessageId {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value
+            .as_str()?
+            .parse()
+            .map_err(|error: uuid::Error| FromSqlError::Other(error.into()))
     }
 }
 
@@ -64,24 +87,17 @@ impl std::str::FromStr for IdPrefix {
     }
 }
 
-/// A Sender's or Receiver's name, which must hold something other than whitespace.
-#[derive(Clone, Debug)]
+/// A Sender's or Receiver's name, which must hold something other than whitespace. Reading
+/// one from the Inbox or from JSON applies the same rule. It serializes as its bare text:
+/// serde writes a newtype struct as its field, and `#[serde(transparent)]` cannot be combined
+/// with `try_from`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(try_from = "String")]
 pub struct Name(String);
 
 impl Name {
     pub fn as_str(&self) -> &str {
         &self.0
-    }
-
-    /// The text of each of `names`, in order.
-    pub fn all_as_str(names: &[Name]) -> Vec<&str> {
-        names.iter().map(Name::as_str).collect()
-    }
-
-    /// A name read back from the Inbox: it passed the blank check on the way in, so it is
-    /// not checked again and a read never fails on it.
-    pub fn stored(text: String) -> Self {
-        Self(text)
     }
 }
 
@@ -95,10 +111,32 @@ impl std::str::FromStr for Name {
     type Err = String;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
+        text.to_owned().try_into()
+    }
+}
+
+impl TryFrom<String> for Name {
+    type Error = String;
+
+    fn try_from(text: String) -> Result<Self, Self::Error> {
         if text.trim().is_empty() {
             return Err("the name is blank; give a name".to_owned());
         }
-        Ok(Self(text.to_owned()))
+        Ok(Self(text))
+    }
+}
+
+impl ToSql for Name {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        self.0.to_sql()
+    }
+}
+
+impl FromSql for Name {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        String::column_result(value)?
+            .try_into()
+            .map_err(|error: String| FromSqlError::Other(error.into()))
     }
 }
 
@@ -141,8 +179,12 @@ impl Message {
         let mut text = format!(
             "Id:       {}\nFrom:     {}\nTo:       {}\nSubject:  {}\n{parent}Created:  {created}\n",
             self.id,
-            self.sender.as_str(),
-            Name::all_as_str(&self.receivers).join(", "),
+            self.sender,
+            self.receivers
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", "),
             self.subject,
         );
         if let Some(body) = &self.body {
@@ -189,7 +231,7 @@ impl Message {
     fn to_json_value(&self) -> serde_json::Value {
         let mut value = self.to_list_json_value();
         value["body"] = serde_json::json!(self.body);
-        value["parent"] = serde_json::json!(self.parent.as_ref().map(ToString::to_string));
+        value["parent"] = serde_json::json!(self.parent);
         value
     }
 
@@ -197,9 +239,9 @@ impl Message {
     /// id and an RFC 3339 UTC `created_at`, and no `body` or `parent`.
     pub fn to_list_json_value(&self) -> serde_json::Value {
         serde_json::json!({
-            "id": self.id.to_string(),
-            "from": self.sender.as_str(),
-            "to": Name::all_as_str(&self.receivers),
+            "id": self.id,
+            "from": self.sender,
+            "to": self.receivers,
             "subject": self.subject,
             "created_at": self.created_at.to_rfc3339_opts(SecondsFormat::Secs, true),
         })
@@ -220,6 +262,51 @@ mod tests {
                 "for {blank:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_blank_name_is_refused_when_read_from_json() {
+        let error = serde_json::from_str::<Vec<Name>>(r#"["bob", " "]"#)
+            .expect_err("a blank name is refused");
+
+        assert!(
+            error.to_string().contains("the name is blank; give a name"),
+            "refused for another reason: {error}"
+        );
+    }
+
+    #[test]
+    fn a_blank_name_is_refused_when_read_from_the_inbox() {
+        let connection = rusqlite::Connection::open_in_memory().expect("opens");
+
+        let error = connection
+            .query_row("SELECT ' '", [], |row| row.get::<_, Name>(0))
+            .expect_err("a blank name is refused");
+
+        assert!(
+            error.to_string().contains("the name is blank; give a name"),
+            "refused for another reason: {error}"
+        );
+    }
+
+    #[test]
+    fn names_and_ids_round_trip_through_the_inbox_and_json() {
+        let id = MessageId::random();
+        let name: Name = "alice".parse().expect("the name is not blank");
+        let connection = rusqlite::Connection::open_in_memory().expect("opens");
+
+        let (read_id, read_name): (MessageId, Name) = connection
+            .query_row("SELECT ?1, ?2", rusqlite::params![id, name], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .expect("reads back");
+
+        assert_eq!(read_id.to_string(), id.to_string());
+        assert_eq!(read_name.as_str(), "alice");
+        assert_eq!(
+            serde_json::to_string(&(id.clone(), name)).expect("serializes"),
+            format!(r#"["{id}","alice"]"#)
+        );
     }
 
     #[test]

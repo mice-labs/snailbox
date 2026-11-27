@@ -3,7 +3,7 @@
 //! still shows a Message's body and parent; and a stored creation time that is not an RFC 3339
 //! time, one with no offset included, fails `show` and `list` with an error saying so; and a
 //! stored id that is not a Message id fails `show`, `create --reply-to` and `list --after` with
-//! an error saying so, as a stored parent that is not one fails `show`. These tests write the
+//! rusqlite's conversion error, as a stored parent that is not one fails `show`. These tests write the
 //! database file directly, since the command line cannot produce an index-less Inbox, a
 //! malformed time or a malformed id; everything they check is the built binary's output, apart
 //! from the index names, which only the file shows.
@@ -207,7 +207,7 @@ fn a_malformed_stored_id_fails_show_reply_to_and_list_after_saying_so() {
         assert!(!output.status.success(), "{args:?} succeeded");
         assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
         assert!(
-            stderr(&output).starts_with("snailbox: the Inbox holds a malformed id not-an-id: "),
+            stderr(&output).starts_with("snailbox: Conversion error from type Text at index: 0, "),
             "{args:?} stderr was {}",
             stderr(&output)
         );
@@ -235,7 +235,7 @@ fn a_malformed_stored_parent_fails_show_saying_so() {
     assert!(!output.status.success(), "show succeeded");
     assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
     assert!(
-        stderr(&output).starts_with("snailbox: the Inbox holds a malformed parent not-a-parent: "),
+        stderr(&output).starts_with("snailbox: Conversion error from type Text at index: 5, "),
         "stderr was {}",
         stderr(&output)
     );
