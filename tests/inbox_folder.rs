@@ -1,7 +1,8 @@
 //! Which folder holds the Inbox, and that `create`, `show` and `list` each create it on first
 //! use for its owner only. A Message created under one setting is shown again with `SNAILBOX_HOME`
-//! pointing at the folder that setting should have chosen, so the tests never open the
-//! database file.
+//! pointing at the folder that setting should have chosen. Other tests read modes: a folder
+//! snailbox creates is 700, and in a folder that already exists with mode 755 the database
+//! file snailbox creates is 600 while the folder keeps 755.
 
 mod common;
 
@@ -103,6 +104,30 @@ fn create_makes_the_folder_for_its_owner_only() {
         .permissions()
         .mode();
     assert_eq!(mode & 0o777, 0o700, "mode was {:o}", mode & 0o777);
+}
+
+fn mode_of(path: &Path) -> u32 {
+    std::fs::metadata(path)
+        .expect("the path exists")
+        .permissions()
+        .mode()
+        & 0o777
+}
+
+#[test]
+fn create_in_an_existing_755_folder_makes_the_database_for_its_owner_only() {
+    let scratch = TempFolder::new("folder-existing-755");
+    let folder = scratch.path().join("existing");
+    std::fs::create_dir(&folder).expect("the test can make the folder");
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755))
+        .expect("the test can set the folder's mode");
+
+    create(&folder, &NEW_MESSAGE);
+
+    let database = mode_of(&folder.join("inbox.sqlite3"));
+    assert_eq!(database, 0o600, "database mode was {database:o}");
+    let folder_mode = mode_of(&folder);
+    assert_eq!(folder_mode, 0o755, "folder mode was {folder_mode:o}");
 }
 
 #[test]

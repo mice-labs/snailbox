@@ -1,7 +1,8 @@
-//! Where the Inbox lives on this machine, and making that folder on first use.
+//! Where the Inbox lives on this machine, and making that folder and its database file on
+//! first use.
 
 use std::ffi::OsString;
-use std::os::unix::fs::DirBuilderExt;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -35,6 +36,22 @@ pub fn ensure_folder(folder: &Path) -> Result<()> {
         }
         _ => Ok(()),
     }
+}
+
+/// Creates the empty file `path` if it is missing, readable and writable by its owner only
+/// whatever the folder's mode (subject to the process umask, which can only remove more bits);
+/// an existing file is left as it is, content and permissions. Made before SQLite opens the path
+/// so that SQLite, which would create it 644 under the common umask 022 (the umask removes
+/// bits from SQLite's 666 default), finds it already there.
+pub fn ensure_private_file(path: &Path) -> Result<()> {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(path)
+        .map(drop)
+        .with_context(|| format!("cannot open or create {}", path.display()))
 }
 
 fn non_empty_var(name: &str) -> Option<OsString> {

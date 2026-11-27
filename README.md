@@ -87,7 +87,10 @@ the thread filters.
 The Inbox is a SQLite database in the folder `SNAILBOX_HOME` names when it is set, else
 `$XDG_DATA_HOME/snailbox/` when that is set, else `~/.local/share/snailbox/`. An empty
 variable counts as unset. `create`, `show` and `list` each create a missing folder, readable
-and writable by its owner only; a folder that already exists keeps its permissions.
+and writable by its owner only; a folder that already exists keeps its permissions. The
+database file `inbox.sqlite3`, when snailbox creates it, is readable and writable by its owner
+only whatever the folder's permissions, so other users cannot read the Messages even in a
+folder they can list; a database file that already exists keeps its permissions.
 
 Several processes can run `create` against one Inbox at once: SQLite lets one write at a
 time, and the others wait for it, up to 30 seconds each, before failing with "database is

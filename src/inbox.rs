@@ -106,6 +106,7 @@ impl Inbox {
     pub fn open(folder: &Path) -> Result<Self> {
         location::ensure_folder(folder)?;
         let path = folder.join(DATABASE_FILE);
+        location::ensure_private_file(&path)?;
         let connection = Connection::open(&path)
             .with_context(|| format!("cannot open the Inbox at {}", path.display()))?;
         connection
