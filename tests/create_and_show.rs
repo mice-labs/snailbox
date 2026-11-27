@@ -172,38 +172,17 @@ fn a_message_without_a_body_shows_null_in_json_and_no_body_in_text() {
 #[test]
 fn a_receiver_name_holding_a_comma_comes_back_whole_and_in_order() {
     let home = TempFolder::new("show-comma-receiver");
-    let id = create(
-        home.path(),
-        &[
-            "--from",
-            "alice",
-            "--to",
-            "bob",
-            "--to",
-            "Smith, Jane",
-            "--subject",
-            "hello",
-        ],
-    );
 
-    let output = snailbox(home.path(), &["show", &id, "--json"]);
+    let to = shown_receivers(&home, &["bob", "Smith, Jane"]);
 
-    assert!(output.status.success(), "show failed: {}", stderr(&output));
-    let shown: Value = serde_json::from_str(&stdout(&output)).expect("show --json prints JSON");
-    assert_eq!(shown["to"], serde_json::json!(["bob", "Smith, Jane"]));
+    assert_eq!(to, serde_json::json!(["bob", "Smith, Jane"]));
 }
 
 /// Stores a Message from alice to `receivers`, one `--to` each in the order given, and returns
-/// the `to` array `show --json` prints for it, failing the test unless `create` and `show` each
-/// succeed with nothing on standard error.
+/// the `to` array `show --json` prints for it, failing the test unless `create` succeeds and
+/// `show` succeeds with nothing on standard error.
 fn shown_receivers(home: &TempFolder, receivers: &[&str]) -> Value {
-    let mut args = vec!["create", "--from", "alice", "--subject", "hello"];
-    for name in receivers {
-        args.extend(["--to", name]);
-    }
-    let created = snailbox(home.path(), &args);
-    assert!(created.stderr.is_empty(), "stderr was {}", stderr(&created));
-    let id = common::id_from(&created);
+    let id = common::store(home, "alice", receivers, "hello");
 
     let output = snailbox(home.path(), &["show", &id, "--json"]);
 
@@ -236,7 +215,6 @@ fn two_messages_with_several_receivers_each_keep_their_own() {
 #[test]
 fn a_receiver_named_twice_is_stored_twice_in_the_order_given() {
     let home = TempFolder::new("show-duplicate-receivers");
-    shown_receivers(&home, &["zed"]);
 
     let to = shown_receivers(&home, &["bob", "carol", "bob"]);
 

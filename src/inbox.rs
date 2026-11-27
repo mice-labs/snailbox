@@ -372,8 +372,8 @@ macro_rules! select_message {
 }
 
 // ?1 is the Message's seq and ?2 its Receivers as a JSON array; json_each's key is the index,
-// which is the position. The seq is bound rather than read with last_insert_rowid() in SQL,
-// which moves to each receivers row as it lands.
+// which is the position. last_insert_rowid() inside the SELECT would advance with each
+// receivers row, so the Message's seq is bound.
 const INSERT_RECEIVERS_SQL: &str = "INSERT INTO receivers (seq, position, name)
      SELECT ?1, key, value FROM json_each(?2)";
 

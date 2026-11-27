@@ -5,7 +5,8 @@
 mod common;
 
 use common::{
-    create, listed_messages, listed_subjects, snailbox, stderr, stdout, store, TempFolder,
+    create, listed_ids, listed_messages, listed_subjects, snailbox, stderr, stdout, store,
+    TempFolder,
 };
 use serde_json::Value;
 
@@ -168,6 +169,20 @@ fn to_matches_a_message_also_addressed_to_others() {
         listed_subjects(&home, &["--to", "bob"]),
         ["only bob", "carol and bob"]
     );
+}
+
+#[test]
+fn to_matches_a_later_or_repeated_receiver_and_lists_the_message_once() {
+    let home = TempFolder::new("list-to-later");
+    let three = store(&home, "alice", &["bob", "carol", "dave"], "three");
+    let repeated = store(&home, "alice", &["erin", "dave", "erin"], "repeated");
+    store(&home, "alice", &["bob"], "only bob");
+
+    assert_eq!(
+        listed_ids(&home, &["--to", "dave"]),
+        [three, repeated.clone()]
+    );
+    assert_eq!(listed_ids(&home, &["--to", "erin"]), [repeated]);
 }
 
 #[test]
