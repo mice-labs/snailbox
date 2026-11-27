@@ -64,10 +64,10 @@ impl std::fmt::Display for NoMessage {
 
 impl std::error::Error for NoMessage {}
 
-/// The inputs that name a Message by id or prefix: the `ListFilter` id fields, the Message
+/// The arguments that name a Message by id or prefix: the `ListFilter` id fields, the Message
 /// `show` prints and the parent a new Message replies to.
 #[derive(Debug, Clone, Copy)]
-pub enum IdInput {
+pub enum IdArgument {
     After,
     Before,
     Upthread,
@@ -77,11 +77,11 @@ pub enum IdInput {
     ReplyTo,
 }
 
-/// An id input named a prefix no Message matches; a caller downcasts to it to add a hint
-/// naming the input.
+/// An id argument named a prefix no Message matches; a caller downcasts to it to add a hint
+/// naming the argument.
 #[derive(Debug)]
 pub struct NoMessageFor {
-    pub input: IdInput,
+    pub argument: IdArgument,
     pub no_message: NoMessage,
 }
 
@@ -111,7 +111,7 @@ impl Inbox {
 
     /// Stores `new` with a fresh id and the current time, and returns the id.
     pub fn create(&mut self, new: &NewMessage) -> Result<MessageId> {
-        let parent = self.full_id_of(&new.reply_to, IdInput::ReplyTo)?;
+        let parent = self.full_id_of(&new.reply_to, IdArgument::ReplyTo)?;
         let id = MessageId::random();
         let created_at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
         // Immediate makes the lock point explicit: the write lock is taken at BEGIN, where a
@@ -164,18 +164,22 @@ impl Inbox {
     }
 
     /// The full id of the Message `prefix` names, or none when there is no `prefix`; fails as
-    /// `resolve_id` does, its no-match error naming `input`.
-    fn full_id_of(&self, prefix: &Option<IdPrefix>, input: IdInput) -> Result<Option<String>> {
+    /// `resolve_id` does, its no-match error naming `argument`.
+    fn full_id_of(
+        &self,
+        prefix: &Option<IdPrefix>,
+        argument: IdArgument,
+    ) -> Result<Option<String>> {
         prefix
             .as_ref()
-            .map(|prefix| named_by(self.resolve_id(prefix), input).map(|id| id.to_string()))
+            .map(|prefix| named_by(self.resolve_id(prefix), argument).map(|id| id.to_string()))
             .transpose()
     }
 
     /// The Message whose id is, or is the only one to start with, `prefix`; fails when no
     /// Message does or several do.
     pub fn show(&self, prefix: &IdPrefix) -> Result<Message> {
-        named_by(self.resolve(prefix), IdInput::Show)
+        named_by(self.resolve(prefix), IdArgument::Show)
     }
 
     /// The Messages matching `filter`, in the order this Inbox stored them, oldest first
@@ -183,11 +187,11 @@ impl Inbox {
     /// the oldest are kept if `after` is given and the newest otherwise, and the listing says
     /// what was left out and where to continue.
     pub fn list(&self, filter: &ListFilter) -> Result<Listing> {
-        let after = self.full_id_of(&filter.after, IdInput::After)?;
-        let before = self.full_id_of(&filter.before, IdInput::Before)?;
-        let upthread = self.full_id_of(&filter.upthread, IdInput::Upthread)?;
-        let downthread = self.full_id_of(&filter.downthread, IdInput::Downthread)?;
-        let thread = self.full_id_of(&filter.thread, IdInput::Thread)?;
+        let after = self.full_id_of(&filter.after, IdArgument::After)?;
+        let before = self.full_id_of(&filter.before, IdArgument::Before)?;
+        let upthread = self.full_id_of(&filter.upthread, IdArgument::Upthread)?;
+        let downthread = self.full_id_of(&filter.downthread, IdArgument::Downthread)?;
+        let thread = self.full_id_of(&filter.thread, IdArgument::Thread)?;
         let paging_forward = after.is_some();
         let sql = if paging_forward {
             LIST_OLDEST_SQL
@@ -240,10 +244,14 @@ fn one_of<T>(prefix: &IdPrefix, mut matches: Vec<T>, id_of: impl Fn(&T) -> Strin
     }
 }
 
-/// `result`, its no-match error named for `input`.
-fn named_by<T>(result: Result<T>, input: IdInput) -> Result<T> {
+/// `result`, its no-match error named for `argument`.
+fn named_by<T>(result: Result<T>, argument: IdArgument) -> Result<T> {
     result.map_err(|error| match error.downcast::<NoMessage>() {
-        Ok(no_message) => NoMessageFor { input, no_message }.into(),
+        Ok(no_message) => NoMessageFor {
+            argument,
+            no_message,
+        }
+        .into(),
         Err(error) => error,
     })
 }

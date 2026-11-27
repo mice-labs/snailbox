@@ -12,7 +12,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use body::BodySource;
-use inbox::{IdInput, Inbox, ListFilter, NoMessageFor};
+use inbox::{IdArgument, Inbox, ListFilter, NoMessageFor};
 use listing::{AFTER_FLAG, BEFORE_FLAG};
 use message::{IdPrefix, NewMessage};
 
@@ -120,17 +120,21 @@ fn name(text: &str) -> Result<String, String> {
 /// characters are the start of a stored id (an all-digit value such as 20261126 is a valid hex
 /// prefix, and ids are random UUIDs, ADR 0001).
 fn hint_id_error(error: anyhow::Error) -> anyhow::Error {
-    let Some(NoMessageFor { input, no_message }) = error.downcast_ref::<NoMessageFor>() else {
+    let Some(NoMessageFor {
+        argument,
+        no_message,
+    }) = error.downcast_ref::<NoMessageFor>()
+    else {
         return error;
     };
-    let named = match input {
-        IdInput::After => AFTER_FLAG,
-        IdInput::Before => BEFORE_FLAG,
-        IdInput::Upthread => "--upthread",
-        IdInput::Downthread => "--downthread",
-        IdInput::Thread => "--thread",
-        IdInput::Show => "show's ID argument",
-        IdInput::ReplyTo => "--reply-to",
+    let named = match argument {
+        IdArgument::After => AFTER_FLAG,
+        IdArgument::Before => BEFORE_FLAG,
+        IdArgument::Upthread => "--upthread",
+        IdArgument::Downthread => "--downthread",
+        IdArgument::Thread => "--thread",
+        IdArgument::Show => "show's ID argument",
+        IdArgument::ReplyTo => "--reply-to",
     };
     anyhow::anyhow!(
         "{no_message}; {named} takes a Message id (or a unique prefix of one), not a date or \
