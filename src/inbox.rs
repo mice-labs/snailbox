@@ -568,7 +568,10 @@ mod rule_tests {
 
     #[test]
     fn no_body_source_means_no_body() {
-        assert!(matches!(BodySource::from_flags(None, None, false), Ok(None)));
+        assert!(matches!(
+            BodySource::from_flags(None, None, false),
+            Ok(None)
+        ));
     }
 
     #[test]
