@@ -248,7 +248,10 @@ mod tests {
             stdin: false,
         };
 
-        assert!(matches!(Option::<BodySource>::from(text), Some(BodySource::Text(_))));
+        assert!(matches!(
+            Option::<BodySource>::from(text),
+            Some(BodySource::Text(_))
+        ));
     }
 
     #[test]
