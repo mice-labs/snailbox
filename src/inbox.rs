@@ -34,9 +34,11 @@ const WRITER_WAIT: Duration = Duration::from_secs(30);
 // or its SQLite build defaults it on, as rusqlite's `bundled` build (Cargo.toml) does with
 // SQLITE_DEFAULT_FOREIGN_KEYS=1. `id` is COLLATE NOCASE because UUID text is case-insensitive
 // (RFC 9562): a prefix is bound as typed and still matches, in either letter case. The unique
-// index takes that collation from `id`; `parent` stays BINARY, so the foreign key and the
-// thread joins on parent compare exactly, which is safe because parent is only ever written
-// from an id already stored. CREATE TABLE IF NOT EXISTS leaves an existing table as it is, so
+// index takes that collation from `id`; `parent` stays BINARY. SQLite checks the foreign key
+// under the referenced column's collation, so it compares in NOCASE; of the thread joins, the
+// upthread one (messages.id = upthread.id) compares in NOCASE and the downthread one
+// (messages.parent = downthread.id) compares exactly, which is safe because parent is only
+// ever written from an id already stored. CREATE TABLE IF NOT EXISTS leaves an existing table as it is, so
 // an Inbox whose messages table predates COLLATE NOCASE keeps a BINARY id column and matches a
 // prefix only in the case stored (lower case, as ids are written); there is no migration.
 const SCHEMA: &str = "
