@@ -150,8 +150,8 @@ impl FromSql for Name {
 }
 
 /// The subject of a Message, which must hold something other than whitespace. Reading a stored
-/// Message applies the same rule: an Inbox that holds a blank subject is corrupt, and a `show` or `list`
-/// that reads that Message fails.
+/// Message applies the same rule, so a `show` or `list` that reads a blank stored subject fails
+/// with rusqlite's conversion error.
 #[derive(Clone, Debug)]
 pub struct Subject(String);
 

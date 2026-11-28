@@ -2,10 +2,9 @@
 
 use std::num::NonZeroUsize;
 use std::path::Path;
-use std::str::Utf8Error;
 use std::time::Duration;
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use chrono::{DateTime, SecondsFormat, Utc};
 use rusqlite::{params, Connection, Row, TransactionBehavior};
 
@@ -279,19 +278,11 @@ fn message_from_row(row: &Row<'_>) -> Result<Message> {
     let receivers_json: String = row.get("receivers")?;
     let receivers: Vec<Name> = serde_json::from_str(&receivers_json)
         .with_context(|| format!("the Inbox holds malformed Receivers {receivers_json}"))?;
-    let id: MessageId = row.get("id")?;
-    // A conversion failure on text that is valid UTF-8 can only be Subject's not-blank rule.
-    let subject = row.get("subject").map_err(|error| match error {
-        rusqlite::Error::FromSqlConversionFailure(_, _, ref cause) if !cause.is::<Utf8Error>() => {
-            anyhow!("the Inbox holds a blank subject for the Message {id}; it is corrupt")
-        }
-        error => error.into(),
-    })?;
     Ok(Message {
-        id,
+        id: row.get("id")?,
         sender: row.get("sender")?,
         receivers,
-        subject,
+        subject: row.get("subject")?,
         body: row.get("body")?,
         parent: row.get("parent")?,
         created_at: created_at_from_row(row)?,
@@ -537,10 +528,9 @@ mod rule_tests {
     }
 
     #[test]
-    fn show_and_list_refuse_a_stored_blank_subject_naming_the_message() {
+    fn show_and_list_refuse_a_stored_blank_subject() {
         let stored_id = "abcdef01-3333-4333-8333-333333333333";
-        let expected =
-            format!("the Inbox holds a blank subject for the Message {stored_id}; it is corrupt");
+        let expected = "the subject is blank";
 
         for blank in ["", "  ", "\t"] {
             let folder = TempFolder::new("blank-stored-subject");
@@ -571,8 +561,14 @@ mod rule_tests {
                 .err()
                 .expect("list refuses");
 
-            assert_eq!(shown.to_string(), expected, "show of {blank:?}");
-            assert_eq!(listed.to_string(), expected, "list of {blank:?}");
+            assert!(
+                shown.to_string().contains(expected),
+                "show of {blank:?}: {shown}"
+            );
+            assert!(
+                listed.to_string().contains(expected),
+                "list of {blank:?}: {listed}"
+            );
         }
     }
 
