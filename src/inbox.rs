@@ -32,11 +32,15 @@ const WRITER_WAIT: Duration = Duration::from_secs(30);
 // SQLite ignores the pragma; setting it keeps them enforced whatever the build default is
 // (snailbox-8ly.1.22). A connection opened another way enforces them only if it sets the pragma
 // or its SQLite build defaults it on, as rusqlite's `bundled` build (Cargo.toml) does with
-// SQLITE_DEFAULT_FOREIGN_KEYS=1.
+// SQLITE_DEFAULT_FOREIGN_KEYS=1. `id` is COLLATE NOCASE because UUID text is case-insensitive
+// (RFC 9562): a prefix is bound as typed and still matches. `parent` and the unique index take
+// that collation from `id`, so the foreign key and the thread joins compare ids the same way.
+// SCHEMA changes in place: an Inbox created before this keeps its BINARY id column, where a
+// prefix typed in upper case matches nothing.
 const SCHEMA: &str = "
     CREATE TABLE IF NOT EXISTS messages (
         seq        INTEGER PRIMARY KEY AUTOINCREMENT,
-        id         TEXT NOT NULL UNIQUE,
+        id         TEXT NOT NULL UNIQUE COLLATE NOCASE,
         sender     TEXT NOT NULL,
         subject    TEXT NOT NULL,
         body       TEXT,
@@ -154,7 +158,7 @@ impl Inbox {
     fn resolve(&self, prefix: &IdPrefix) -> Result<Message> {
         let mut statement = self.connection.prepare(RESOLVE_SQL)?;
         let matches = statement
-            .query_and_then([prefix.lowercased()], message_from_row)?
+            .query_and_then([prefix.as_str()], message_from_row)?
             .collect::<Result<Vec<Message>>>()?;
         one_of(prefix, matches, |message| message.id.to_string())
     }
@@ -164,7 +168,7 @@ impl Inbox {
     fn resolve_id(&self, prefix: &IdPrefix) -> Result<MessageId> {
         let mut statement = self.connection.prepare(RESOLVE_ID_SQL)?;
         let ids = statement
-            .query_map([prefix.lowercased()], |row| row.get("id"))?
+            .query_map([prefix.as_str()], |row| row.get("id"))?
             .collect::<rusqlite::Result<Vec<MessageId>>>()?;
         one_of(prefix, ids, MessageId::to_string)
     }
@@ -375,10 +379,11 @@ macro_rules! select_message {
 const INSERT_RECEIVERS_SQL: &str = "INSERT INTO receivers (seq, position, name)
      SELECT ?1, key, value FROM json_each(?2)";
 
-// A prefix match written as a range on id, the form the unique index on id serves. Under the
-// BINARY collation id has (SCHEMA gives it no other), U+10FFFF sorts after every character an
-// id holds, so the range ends past every id with the prefix; a collation that ordered
-// otherwise would need another upper bound.
+// A prefix match written as a range on id, the form the unique index on id serves (the test
+// the_prefix_range_searches_the_unique_index_on_id records its plan). id is COLLATE NOCASE,
+// which folds only ASCII letters, so the range compares the prefix in either letter case, and
+// U+10FFFF still sorts after every character an id holds: the range ends past every id with
+// the prefix. A collation that ordered otherwise would need another upper bound.
 macro_rules! id_prefix_range {
     () => {
         "FROM messages WHERE id >= ?1 AND id < ?1 || char(1114111) ORDER BY seq"
@@ -560,6 +565,62 @@ mod tests {
         );
 
         assert_foreign_key_refused(result);
+    }
+
+    const STORED_ID: &str = "abcdef01-3333-4333-8333-333333333333";
+
+    fn inbox_holding_one_message(name: &str) -> (TempFolder, Inbox) {
+        let folder = TempFolder::new(name);
+        let inbox = Inbox::open(folder.path()).expect("the Inbox opens");
+        inbox
+            .connection
+            .execute(
+                "INSERT INTO messages (id, sender, subject, body, created_at, parent)
+                 VALUES (?1, 'alice', 'hi', NULL, '2026-11-27T00:00:00Z', NULL)",
+                [STORED_ID],
+            )
+            .expect("the Message is stored");
+        (folder, inbox)
+    }
+
+    #[test]
+    fn the_id_column_matches_a_prefix_bound_as_typed_in_either_letter_case() {
+        let (_folder, inbox) = inbox_holding_one_message("nocase-prefix");
+
+        for typed in ["ABCDEF01-33", "abcdef01-33", "AbCdEf01-33"] {
+            let ids: Vec<String> = inbox
+                .connection
+                .prepare(RESOLVE_ID_SQL)
+                .expect("the query prepares")
+                .query_map([typed], |row| row.get("id"))
+                .expect("the query runs")
+                .collect::<rusqlite::Result<_>>()
+                .expect("the rows read");
+
+            assert_eq!(ids, [STORED_ID], "{typed} did not match");
+        }
+    }
+
+    // Under NOCASE the unique index on id is built with the column's collation, so the range
+    // still searches it rather than scanning the table.
+    #[test]
+    fn the_prefix_range_searches_the_unique_index_on_id() {
+        let (_folder, inbox) = inbox_holding_one_message("prefix-plan");
+
+        let plan: Vec<String> = inbox
+            .connection
+            .prepare(&format!("EXPLAIN QUERY PLAN {RESOLVE_ID_SQL}"))
+            .expect("the plan prepares")
+            .query_map(["ABCDEF01"], |row| row.get("detail"))
+            .expect("the plan runs")
+            .collect::<rusqlite::Result<_>>()
+            .expect("the rows read");
+
+        assert!(
+            plan.iter().any(|step| step.starts_with("SEARCH messages")
+                && step.contains("sqlite_autoindex_messages_1")),
+            "the prefix range did not search the unique index on id: {plan:?}"
+        );
     }
 
     #[test]

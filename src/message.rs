@@ -59,24 +59,21 @@ impl FromSql for MessageId {
 }
 
 /// The start of a Message's id as a person types it: a whole id or any non-empty prefix of
-/// one. Ids are stored in lowercase, so it matches by its lowercased form whatever the case
-/// typed, and displays as typed.
+/// one. It holds the text as typed, which errors echo and queries bind unchanged: the Inbox's
+/// id column is COLLATE NOCASE, so it matches whatever the letter case typed.
 #[derive(Clone, Debug)]
-pub struct IdPrefix {
-    typed: String,
-    lowercase: String,
-}
+pub struct IdPrefix(String);
 
 impl IdPrefix {
-    /// The lowercased text to match against stored ids.
-    pub fn lowercased(&self) -> &str {
-        &self.lowercase
+    /// The text as typed, to bind in a query against the Inbox's id column.
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
 impl fmt::Display for IdPrefix {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.typed)
+        f.write_str(&self.0)
     }
 }
 
@@ -87,10 +84,7 @@ impl std::str::FromStr for IdPrefix {
         if text.is_empty() {
             Err("an id prefix cannot be empty".to_string())
         } else {
-            Ok(Self {
-                typed: text.to_string(),
-                lowercase: text.to_lowercase(),
-            })
+            Ok(Self(text.to_string()))
         }
     }
 }

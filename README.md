@@ -41,8 +41,7 @@ the Message as a Reply to the named Message, and `show` prints a Reply's parent 
 matches exactly one Message. They exit non-zero with an error on standard error when the
 prefix is empty or no Message matches, or when several do, in which case the error lists the
 matches and ends by saying to give more characters of the id. An error echoes the prefix in
-the letter case it was typed. They never
-take a date or time: ids are random UUIDs, so a date or time matches no Message, and the
+the letter case it was typed. They never take a date or time: ids are random UUIDs, so a date or time matches no Message, and the
 no-match error adds that the argument or flag takes a Message id, not a date or time, and to
 run `snailbox list` to find one. The exception is an all-digit value such as `20261126`, which
 is also a valid id prefix: it is read as one, and matches a Message only when that Message's
