@@ -168,6 +168,78 @@ fn limit_defaults_to_fifty_and_the_most_recent_are_kept() {
 }
 
 #[test]
+fn the_default_limit_of_fifty_applies_with_after_alone() {
+    let (home, ids) = home_with(53, "default-limit-after");
+
+    assert_eq!(
+        listed_subjects(&home, &["--after", &ids[0]]),
+        subjects(2..=51)
+    );
+
+    let output = snailbox(home.path(), &["list", "--after", &ids[0]]);
+    let text = stdout(&output);
+    let last = text.lines().last().expect("a last line");
+    assert_eq!(text.lines().count(), 51, "output was {text}");
+    assert!(
+        last.contains("2 newer Messages left out"),
+        "last was {last}"
+    );
+    assert!(
+        last.contains(&format!("--after {}", ids[50])),
+        "last was {last}"
+    );
+}
+
+#[test]
+fn the_default_limit_of_fifty_applies_with_before_alone() {
+    let (home, ids) = home_with(53, "default-limit-before");
+
+    assert_eq!(
+        listed_subjects(&home, &["--before", &ids[52]]),
+        subjects(3..=52)
+    );
+
+    let output = snailbox(home.path(), &["list", "--before", &ids[52]]);
+    let text = stdout(&output);
+    let last = text.lines().last().expect("a last line");
+    assert_eq!(text.lines().count(), 51, "output was {text}");
+    assert!(
+        last.contains("2 older Messages left out"),
+        "last was {last}"
+    );
+    assert!(
+        last.contains(&format!("--before {}", ids[2])),
+        "last was {last}"
+    );
+}
+
+#[test]
+fn the_default_limit_of_fifty_applies_with_after_and_before() {
+    let (home, ids) = home_with(54, "default-limit-range");
+
+    assert_eq!(
+        listed_subjects(&home, &["--after", &ids[0], "--before", &ids[53]]),
+        subjects(2..=51)
+    );
+
+    let output = snailbox(
+        home.path(),
+        &["list", "--after", &ids[0], "--before", &ids[53]],
+    );
+    let text = stdout(&output);
+    let last = text.lines().last().expect("a last line");
+    assert_eq!(text.lines().count(), 51, "output was {text}");
+    assert!(
+        last.contains("2 newer Messages left out"),
+        "last was {last}"
+    );
+    assert!(
+        last.contains(&format!("--after {}", ids[50])),
+        "last was {last}"
+    );
+}
+
+#[test]
 fn limit_zero_is_refused_and_lists_nothing() {
     let (home, _) = home_with(3, "zero-limit");
 
