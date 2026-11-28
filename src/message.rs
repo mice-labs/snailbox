@@ -107,6 +107,11 @@ impl fmt::Display for Name {
     }
 }
 
+/// Whether `text` is empty or only whitespace, the test a Name and a Subject both refuse on.
+fn is_blank(text: &str) -> bool {
+    text.trim().is_empty()
+}
+
 impl std::str::FromStr for Name {
     type Err = String;
 
@@ -119,7 +124,7 @@ impl TryFrom<String> for Name {
     type Error = String;
 
     fn try_from(text: String) -> Result<Self, Self::Error> {
-        if text.trim().is_empty() {
+        if is_blank(&text) {
             return Err("the name is blank; give a name".to_owned());
         }
         Ok(Self(text))
@@ -140,11 +145,34 @@ impl FromSql for Name {
     }
 }
 
+/// The subject of a Message being created, which must hold something other than whitespace.
+/// Reading a stored Message does not apply the rule, so an Inbox that holds a blank subject
+/// from before it lists as before.
+#[derive(Clone, Debug)]
+pub struct Subject(String);
+
+impl std::str::FromStr for Subject {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        if is_blank(text) {
+            return Err("the subject is blank; give a subject".to_owned());
+        }
+        Ok(Self(text.to_owned()))
+    }
+}
+
+impl ToSql for Subject {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        self.0.to_sql()
+    }
+}
+
 /// What a creator supplies for a new Message; the Inbox adds the id and creation time.
 pub struct NewMessage {
     pub sender: Name,
     pub receivers: Vec<Name>,
-    pub subject: String,
+    pub subject: Subject,
     pub body: Option<String>,
     /// The id, or a unique prefix of it, of the Message this one replies to.
     pub reply_to: Option<IdPrefix>,

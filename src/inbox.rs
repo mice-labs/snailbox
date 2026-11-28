@@ -494,7 +494,7 @@ mod rule_tests {
                 .create(&NewMessage {
                     sender: name("alice"),
                     receivers: vec![name("bob")],
-                    subject: "hi".to_owned(),
+                    subject: "hi".parse().expect("the subject is not blank"),
                     body: None,
                     reply_to: None,
                 })
