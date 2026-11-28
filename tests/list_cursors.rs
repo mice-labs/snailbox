@@ -48,7 +48,12 @@ fn subjects_of(lines: &[String]) -> Vec<String> {
     lines
         .iter()
         .filter(|line| line.contains('\t'))
-        .map(|line| line.rsplit('\t').next().expect("a subject field").to_owned())
+        .map(|line| {
+            line.rsplit('\t')
+                .next()
+                .expect("a subject field")
+                .to_owned()
+        })
         .collect()
 }
 
@@ -438,7 +443,10 @@ fn json_with_before_alone_names_the_before_flag_as_next() {
 fn text_notice_with_both_cursors_points_after_the_last_message_returned() {
     let (home, ids) = home_with(7, "notice-range");
 
-    let (_, last) = text_listing(&home, &["--after", &ids[0], "--before", &ids[6], "--limit", "2"]);
+    let (_, last) = text_listing(
+        &home,
+        &["--after", &ids[0], "--before", &ids[6], "--limit", "2"],
+    );
 
     assert!(
         last.contains("3 newer Messages left out"),
