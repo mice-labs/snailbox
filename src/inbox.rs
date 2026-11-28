@@ -6,12 +6,11 @@ use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, SecondsFormat, Utc};
-use rusqlite::types::ValueRef;
 use rusqlite::{params, Connection, Row, TransactionBehavior};
 
 use crate::listing::{Cursor, LeftOut, Listing};
 use crate::location;
-use crate::message::{IdPrefix, Message, MessageId, Name, NewMessage};
+use crate::message::{IdPrefix, MalformedId, Message, MessageId, Name, NewMessage};
 
 mod body;
 pub use body::{Body, BodySource};
@@ -295,21 +294,26 @@ fn message_from_row(row: &Row<'_>) -> Result<Message> {
 }
 
 /// The error for an id or parent column holding text that is not a Message id: it names the
-/// column and quotes the stored text, with the parse error as its cause. Any other conversion
-/// error passes through unchanged.
+/// column and quotes the stored text, with the conversion error as its cause. Any other error
+/// passes through unchanged.
 fn malformed_id(row: &Row<'_>, error: rusqlite::Error) -> anyhow::Error {
-    let rusqlite::Error::FromSqlConversionFailure(index, _, _) = error else {
-        return error.into();
+    let context = match &error {
+        rusqlite::Error::FromSqlConversionFailure(index, _, source) => {
+            source.downcast_ref::<MalformedId>().map(|malformed| {
+                let column = row
+                    .as_ref()
+                    .column_name(*index)
+                    .expect("a column the row read has a name");
+                format!("the Inbox holds a malformed {column} {}", malformed.text)
+            })
+        }
+        _ => None,
     };
-    let Ok(ValueRef::Text(text)) = row.get_ref(index) else {
-        return error.into();
-    };
-    let column = row
-        .as_ref()
-        .column_name(index)
-        .expect("a column the row read has a name");
-    let stored = String::from_utf8_lossy(text);
-    anyhow::Error::from(error).context(format!("the Inbox holds a malformed {column} {stored}"))
+    let error = anyhow::Error::from(error);
+    match context {
+        Some(context) => error.context(context),
+        None => error,
+    }
 }
 
 /// The row's creation time, read as strict RFC 3339; a stored text that is not one fails with

@@ -49,12 +49,38 @@ impl ToSql for MessageId {
     }
 }
 
+/// Stored text is read lossily so that text which is not UTF-8 is still quoted in the error.
 impl FromSql for MessageId {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        value
-            .as_str()?
-            .parse()
-            .map_err(|error: uuid::Error| FromSqlError::Other(error.into()))
+        let ValueRef::Text(bytes) = value else {
+            return Err(FromSqlError::InvalidType);
+        };
+        let text = String::from_utf8_lossy(bytes);
+        text.parse().map_err(|source| {
+            FromSqlError::Other(Box::new(MalformedId {
+                text: text.into_owned(),
+                source,
+            }))
+        })
+    }
+}
+
+/// Stored text that is not a Message id, kept so that an error can quote it.
+#[derive(Debug)]
+pub struct MalformedId {
+    pub text: String,
+    source: uuid::Error,
+}
+
+impl fmt::Display for MalformedId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} is not a Message id", self.text)
+    }
+}
+
+impl std::error::Error for MalformedId {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
     }
 }
 
