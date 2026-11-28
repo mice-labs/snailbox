@@ -25,8 +25,8 @@ const WRITER_WAIT: Duration = Duration::from_secs(30);
 // `seq` is the Store's own sequence number (ADR 0001), assigned by the insert itself.
 // AUTOINCREMENT keeps it from ever reusing a number, so a Message stored later always sorts
 // later. `created_at` is RFC 3339 text in UTC, since SQLite has no date type. The indexes are
-// IF NOT EXISTS so a database file written with a schema that lacked them gains them on its next open, with no
-// migration step; without the one on parent each Downthread step of a thread filter scans
+// IF NOT EXISTS so a database file written with a schema that lacked them gains them on its
+// next open, with no migration step; without the one on parent each Downthread step of a thread filter scans
 // the table. SQLite enforces the REFERENCES clauses per connection, only where foreign_keys is
 // on. Store::open sets it on each connection it opens, before any transaction, since inside one
 // SQLite ignores the pragma; setting it keeps them enforced whatever the build default is
@@ -38,8 +38,8 @@ const WRITER_WAIT: Duration = Duration::from_secs(30);
 // under the referenced column's collation, so it compares in NOCASE; of the thread joins, the
 // upthread one (messages.id = upthread.id) compares in NOCASE and the downthread one
 // (messages.parent = downthread.id) compares exactly, which is safe because parent is only
-// ever written from an id already stored. CREATE TABLE IF NOT EXISTS leaves an existing table as it is, so
-// a database file whose messages table was written without COLLATE NOCASE keeps a BINARY id
+// ever written from an id already stored. CREATE TABLE IF NOT EXISTS leaves an existing table
+// as it is, so a database file whose messages table was written without COLLATE NOCASE keeps a BINARY id
 // column and matches a prefix only in the case stored (lower case, as ids are written); there
 // is no migration.
 const SCHEMA: &str = "
@@ -386,8 +386,9 @@ const INSERT_RECEIVERS_SQL: &str = "INSERT INTO receivers (seq, position, name)
 
 // A prefix match written as a range on id, the form the unique index on id serves (the test
 // the_prefix_range_searches_the_unique_index_on_id records its plan). id is COLLATE NOCASE,
-// which folds only ASCII letters, so on a Store created with it the range compares the prefix
-// in either letter case (an older BINARY id column matches only the case stored), and
+// which folds only ASCII letters, so in a database file written with it the range compares the
+// prefix in either letter case (a file written with an older schema, whose id column is
+// BINARY, matches only the case stored), and
 // U+10FFFF still sorts after every character an id holds: the range ends past every id with
 // the prefix. A collation that ordered otherwise would need another upper bound.
 macro_rules! id_prefix_range {
