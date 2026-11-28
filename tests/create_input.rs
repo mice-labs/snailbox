@@ -291,8 +291,7 @@ fn create_rejects_an_empty_body_and_stores_nothing() {
 
     let output = run_create(home.path(), &with(&["--body", ""]), b"");
 
-    assert_rejected(&output, "--body is empty");
-    assert_rejected(&output, "leave the body out for none");
+    assert_rejected(&output, "the body is empty; give a body or leave the body out");
     let listing = common::snailbox(home.path(), &["list"]);
     assert!(stdout(&listing).is_empty(), "stored: {}", stdout(&listing));
 }
