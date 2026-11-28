@@ -149,26 +149,60 @@ impl FromSql for Name {
     }
 }
 
-/// The subject of a Message being created, which must hold something other than whitespace.
-/// Reading a stored Message does not apply the rule, so an Inbox that holds a blank subject
-/// from before it lists as before.
+/// The subject of a Message, which must hold something other than whitespace. Reading a stored
+/// Message applies the same rule, so a `show` or `list` that reads a blank stored subject fails
+/// with rusqlite's conversion error.
 #[derive(Clone, Debug)]
 pub struct Subject(String);
+
+impl Subject {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for Subject {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl Serialize for Subject {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.0)
+    }
+}
 
 impl std::str::FromStr for Subject {
     type Err = String;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
-        if is_blank(text) {
+        text.to_owned().try_into()
+    }
+}
+
+impl TryFrom<String> for Subject {
+    type Error = String;
+
+    fn try_from(text: String) -> Result<Self, Self::Error> {
+        if is_blank(&text) {
             return Err("the subject is blank; give a subject".to_owned());
         }
-        Ok(Self(text.to_owned()))
+        Ok(Self(text))
     }
 }
 
 impl ToSql for Subject {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
         self.0.to_sql()
+    }
+}
+
+impl FromSql for Subject {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        String::column_result(value)?
+            .try_into()
+            .map_err(|error: String| FromSqlError::Other(error.into()))
     }
 }
 
@@ -186,7 +220,7 @@ pub struct Message {
     pub id: MessageId,
     pub sender: Name,
     pub receivers: Vec<Name>,
-    pub subject: String,
+    pub subject: Subject,
     pub body: Option<String>,
     pub parent: Option<MessageId>,
     pub created_at: DateTime<Utc>,
@@ -243,7 +277,7 @@ impl Message {
             self.local_time(),
             one_line(self.sender.as_str()),
             receivers.join(","),
-            one_line(&self.subject)
+            one_line(self.subject.as_str())
         )
     }
 
