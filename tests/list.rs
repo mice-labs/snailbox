@@ -247,3 +247,63 @@ fn the_short_help_of_list_and_of_snailbox_says_oldest_first() {
         );
     }
 }
+
+#[test]
+fn list_refuses_a_blank_to_or_from_as_create_does() {
+    let home = TempFolder::new("list-blank-name");
+    store(&home, "alice", &["bob"], "lunch?");
+
+    for (list_args, create_args) in [
+        (
+            &["list", "--to", ""][..],
+            &["create", "--from", "alice", "--to", "", "--subject", "s"][..],
+        ),
+        (
+            &["list", "--to", "  "][..],
+            &["create", "--from", "alice", "--to", "  ", "--subject", "s"][..],
+        ),
+        (
+            &["list", "--from", ""][..],
+            &["create", "--from", "", "--to", "bob", "--subject", "s"][..],
+        ),
+        (
+            &["list", "--from", " \t"][..],
+            &["create", "--from", " \t", "--to", "bob", "--subject", "s"][..],
+        ),
+    ] {
+        let output = snailbox(home.path(), list_args);
+        let created = snailbox(home.path(), create_args);
+
+        assert!(!output.status.success(), "{list_args:?} succeeded");
+        assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
+        assert!(
+            !stderr(&created).is_empty(),
+            "{create_args:?} gave no error"
+        );
+        assert_eq!(
+            stderr(&output),
+            stderr(&created),
+            "stderr for {list_args:?} differs from create's"
+        );
+    }
+}
+
+#[test]
+fn list_with_a_non_blank_name_that_matches_nothing_succeeds_with_an_empty_listing() {
+    let home = TempFolder::new("list-unmatched-name");
+    store(&home, "alice", &["bob"], "lunch?");
+
+    for args in [
+        &["list", "--to", "nobody"][..],
+        &["list", "--from", "nobody"][..],
+    ] {
+        let output = snailbox(home.path(), args);
+
+        assert!(
+            output.status.success(),
+            "{args:?} failed: {}",
+            stderr(&output)
+        );
+        assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
+    }
+}

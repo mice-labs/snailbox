@@ -294,9 +294,9 @@ fn created_at_from_row(row: &Row<'_>) -> Result<DateTime<Utc>> {
 /// Which Messages `list` returns; a field left `None` does not narrow the result.
 pub struct ListFilter {
     /// Matches a Message that has this name among its Receivers.
-    pub to: Option<String>,
+    pub to: Option<Name>,
     /// Matches a Message whose Sender is this name.
-    pub from: Option<String>,
+    pub from: Option<Name>,
     /// Matches only Messages this Inbox stored after the Message with this id or prefix.
     pub after: Option<IdPrefix>,
     /// Matches only Messages this Inbox stored before the Message with this id or prefix.

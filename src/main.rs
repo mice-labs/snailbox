@@ -53,10 +53,10 @@ enum Command {
     /// Store a Message and print its id
     Create {
         /// The Sender's name
-        #[arg(long, value_parser = str::parse::<Name>)]
+        #[arg(long)]
         from: Name,
         /// A Receiver's name; repeat for each Receiver
-        #[arg(long, required = true, value_parser = str::parse::<Name>)]
+        #[arg(long, required = true)]
         to: Vec<Name>,
         /// The Message's subject
         #[arg(long)]
@@ -75,10 +75,10 @@ enum Command {
     List {
         /// Only Messages with this name among their Receivers
         #[arg(long)]
-        to: Option<String>,
+        to: Option<Name>,
         /// Only Messages from this Sender
         #[arg(long)]
-        from: Option<String>,
+        from: Option<Name>,
         /// Only Messages stored after this one, named by its Message id or a unique prefix of it
         /// (not a date or time)
         #[arg(long, value_name = "ID")]
