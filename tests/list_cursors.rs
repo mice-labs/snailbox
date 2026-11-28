@@ -89,13 +89,17 @@ fn a_cursor_matching_no_message_is_an_error_saying_what_to_do_next() {
 #[test]
 fn an_ambiguous_cursor_prefix_is_an_error_listing_the_matches() {
     let home = TempFolder::new("ambiguous");
-    let (shared, _, _) = two_ids_sharing_a_first_character(&home);
+    let (shared, one, other) = two_ids_sharing_a_first_character(&home);
 
     for flag in ["--after", "--before"] {
         let error = failed_list(&home, &[flag, &shared]);
         assert!(
             error.contains(&format!("the id prefix {shared} matches several Messages")),
             "stderr was {error}"
+        );
+        assert!(
+            error.contains(&one) && error.contains(&other),
+            "stderr for {flag} was {error}"
         );
     }
 }

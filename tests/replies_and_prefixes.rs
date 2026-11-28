@@ -1,6 +1,7 @@
 //! `create --reply-to` stores a Reply, `show` prints a Reply's parent, and `show` and
-//! `--reply-to` accept a unique id prefix. Each test runs the built binary against its own
-//! temporary `SNAILBOX_HOME`.
+//! `--reply-to` accept a unique id prefix. The errors of an id that matches no Message or
+//! several are pinned for `show`, `--reply-to` and the `list` id flags. Each test runs the
+//! built binary against its own temporary `SNAILBOX_HOME`.
 
 mod common;
 
@@ -20,6 +21,19 @@ fn create_reply(home: &TempFolder, parent: &str) -> Output {
         home.path(),
         &[&["create"], &reply_args(parent)[..]].concat(),
     )
+}
+
+/// Every command line that takes a Message id or prefix, each given `id`.
+fn id_argument_invocations(id: &str) -> Vec<Vec<&str>> {
+    vec![
+        vec!["show", id],
+        [&["create"], &reply_args(id)[..]].concat(),
+        vec!["list", "--after", id],
+        vec!["list", "--before", id],
+        vec!["list", "--upthread", id],
+        vec!["list", "--downthread", id],
+        vec!["list", "--thread", id],
+    ]
 }
 
 #[test]
@@ -168,6 +182,38 @@ fn a_prefix_matching_several_messages_fails_and_lists_them() {
         );
         assert!(message.contains(&one), "{one} not listed in {message}");
         assert!(message.contains(&other), "{other} not listed in {message}");
+    }
+}
+
+#[test]
+fn every_id_argument_matching_several_messages_ends_on_giving_more_characters() {
+    let home = TempFolder::new("ambiguous-next-step");
+    let (first, _, _) = two_ids_sharing_a_first_character(&home);
+    for args in id_argument_invocations(&first) {
+        let output = snailbox(home.path(), &args);
+
+        assert!(!output.status.success(), "{args:?} succeeded");
+        assert!(
+            stderr(&output).ends_with("\ngive more characters of the id to pick one\n"),
+            "stderr for {args:?} was {}",
+            stderr(&output)
+        );
+    }
+}
+
+#[test]
+fn every_id_argument_matching_no_message_ends_on_running_snailbox_list() {
+    let home = TempFolder::new("no-match-next-step");
+    create(home.path(), &BASE);
+    for args in id_argument_invocations("zzzz") {
+        let output = snailbox(home.path(), &args);
+
+        assert!(!output.status.success(), "{args:?} succeeded");
+        assert!(
+            stderr(&output).ends_with("; run `snailbox list` to find one\n"),
+            "stderr for {args:?} was {}",
+            stderr(&output)
+        );
     }
 }
 

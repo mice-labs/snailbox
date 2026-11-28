@@ -245,7 +245,8 @@ fn one_of<T>(prefix: &IdPrefix, mut matches: Vec<T>, id_of: impl Fn(&T) -> Strin
         .into()),
         1 => Ok(matches.remove(0)),
         _ => bail!(
-            "the id prefix {prefix} matches several Messages:\n{}",
+            "the id prefix {prefix} matches several Messages:\n{}\n\
+             give more characters of the id to pick one",
             matches.iter().map(id_of).collect::<Vec<_>>().join("\n")
         ),
     }
