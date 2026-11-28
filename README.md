@@ -37,8 +37,8 @@ which caps `--subject` and `--body` but not `--body-file` or `--stdin`.
 `create` prints only the new Message's full id, a random UUID version 4. `--reply-to` stores
 the Message as a Reply to the named Message, and `show` prints a Reply's parent id (a
 `Parent:` line in text, `parent` in JSON, null when the Message is not a Reply). `show` and
-`--reply-to` take a Message's id or any non-empty prefix of it, in either letter case, that
-matches exactly one Message; they exit non-zero with an error on standard error when the
+`--reply-to` take a Message's id or any non-empty prefix of it, in either letter case (an error
+echoes the prefix as typed), that matches exactly one Message; they exit non-zero with an error on standard error when the
 prefix is empty or no Message matches, or when several do, in which case the error lists the
 matches and ends by saying to give more characters of the id. They never
 take a date or time: ids are random UUIDs, so a date or time matches no Message, and the

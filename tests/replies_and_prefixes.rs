@@ -151,6 +151,24 @@ fn a_prefix_matches_whatever_its_letter_case() {
 }
 
 #[test]
+fn an_unmatched_prefix_is_reported_in_the_letter_case_it_was_typed() {
+    let home = TempFolder::new("prefix-case-echo");
+    create(home.path(), &BASE);
+    let typed = "2026-11-26T10:00:00Z";
+
+    let output = snailbox(home.path(), &["show", typed]);
+
+    assert!(!output.status.success(), "show succeeded");
+    assert!(
+        stderr(&output).starts_with(&format!(
+            "snailbox: no Message has an id starting with {typed};"
+        )),
+        "stderr was {}",
+        stderr(&output)
+    );
+}
+
+#[test]
 fn show_accepts_a_prefix_matching_exactly_one_message() {
     let home = TempFolder::new("show-prefix");
     let id = create(home.path(), &BASE);
