@@ -172,6 +172,60 @@ fn a_prefix_matching_several_messages_fails_and_lists_them() {
 }
 
 #[test]
+fn every_id_argument_matching_several_messages_ends_on_giving_more_characters() {
+    let home = TempFolder::new("ambiguous-next-step");
+    let (first, _, _) = two_ids_sharing_a_first_character(&home);
+    let reply_to = [&["create"], &reply_args(&first)[..]].concat();
+    let invocations: Vec<Vec<&str>> = vec![
+        vec!["show", &first],
+        reply_to,
+        vec!["list", "--after", &first],
+        vec!["list", "--before", &first],
+        vec!["list", "--upthread", &first],
+        vec!["list", "--downthread", &first],
+        vec!["list", "--thread", &first],
+    ];
+
+    for args in invocations {
+        let output = snailbox(home.path(), &args);
+
+        assert!(!output.status.success(), "{args:?} succeeded");
+        assert!(
+            stderr(&output).ends_with("\ngive more characters of the id to pick one\n"),
+            "stderr for {args:?} was {}",
+            stderr(&output)
+        );
+    }
+}
+
+#[test]
+fn every_id_argument_matching_no_message_ends_on_running_snailbox_list() {
+    let home = TempFolder::new("no-match-next-step");
+    create(home.path(), &BASE);
+    let reply_to = [&["create"], &reply_args("zzzz")[..]].concat();
+    let invocations: Vec<Vec<&str>> = vec![
+        vec!["show", "zzzz"],
+        reply_to,
+        vec!["list", "--after", "zzzz"],
+        vec!["list", "--before", "zzzz"],
+        vec!["list", "--upthread", "zzzz"],
+        vec!["list", "--downthread", "zzzz"],
+        vec!["list", "--thread", "zzzz"],
+    ];
+
+    for args in invocations {
+        let output = snailbox(home.path(), &args);
+
+        assert!(!output.status.success(), "{args:?} succeeded");
+        assert!(
+            stderr(&output).ends_with("; run `snailbox list` to find one\n"),
+            "stderr for {args:?} was {}",
+            stderr(&output)
+        );
+    }
+}
+
+#[test]
 fn a_value_matching_no_message_fails_saying_what_to_do_next() {
     let home = TempFolder::new("prefix-no-match");
     create(home.path(), &BASE);
