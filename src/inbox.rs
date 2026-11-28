@@ -33,10 +33,12 @@ const WRITER_WAIT: Duration = Duration::from_secs(30);
 // (snailbox-8ly.1.22). A connection opened another way enforces them only if it sets the pragma
 // or its SQLite build defaults it on, as rusqlite's `bundled` build (Cargo.toml) does with
 // SQLITE_DEFAULT_FOREIGN_KEYS=1. `id` is COLLATE NOCASE because UUID text is case-insensitive
-// (RFC 9562): a prefix is bound as typed and still matches. `parent` and the unique index take
-// that collation from `id`, so the foreign key and the thread joins compare ids the same way.
-// SCHEMA changes in place: an Inbox created before this keeps its BINARY id column, where a
-// prefix typed in upper case matches nothing.
+// (RFC 9562): a prefix is bound as typed and still matches, in either letter case. The unique
+// index takes that collation from `id`; `parent` stays BINARY, so the foreign key and the
+// thread joins on parent compare exactly, which is safe because parent is only ever written
+// from an id already stored. CREATE TABLE IF NOT EXISTS leaves an existing table as it is, so
+// an Inbox whose messages table predates COLLATE NOCASE keeps a BINARY id column and matches a
+// prefix only in the case stored (lower case, as ids are written); there is no migration.
 const SCHEMA: &str = "
     CREATE TABLE IF NOT EXISTS messages (
         seq        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -381,7 +383,8 @@ const INSERT_RECEIVERS_SQL: &str = "INSERT INTO receivers (seq, position, name)
 
 // A prefix match written as a range on id, the form the unique index on id serves (the test
 // the_prefix_range_searches_the_unique_index_on_id records its plan). id is COLLATE NOCASE,
-// which folds only ASCII letters, so the range compares the prefix in either letter case, and
+// which folds only ASCII letters, so on an Inbox created with it the range compares the prefix
+// in either letter case (an older BINARY id column matches only the case stored), and
 // U+10FFFF still sorts after every character an id holds: the range ends past every id with
 // the prefix. A collation that ordered otherwise would need another upper bound.
 macro_rules! id_prefix_range {
@@ -607,6 +610,19 @@ mod tests {
     fn the_prefix_range_searches_the_unique_index_on_id() {
         let (_folder, inbox) = inbox_holding_one_message("prefix-plan");
 
+        let id_indexes: Vec<String> = inbox
+            .connection
+            .prepare(
+                "SELECT list.name FROM pragma_index_list('messages') AS list
+                 JOIN pragma_index_info(list.name) AS info ON info.name = 'id'",
+            )
+            .expect("the index lookup prepares")
+            .query_map([], |row| row.get("name"))
+            .expect("the index lookup runs")
+            .collect::<rusqlite::Result<_>>()
+            .expect("the rows read");
+        assert!(!id_indexes.is_empty(), "no index on id");
+
         let plan: Vec<String> = inbox
             .connection
             .prepare(&format!("EXPLAIN QUERY PLAN {RESOLVE_ID_SQL}"))
@@ -618,7 +634,7 @@ mod tests {
 
         assert!(
             plan.iter().any(|step| step.starts_with("SEARCH messages")
-                && step.contains("sqlite_autoindex_messages_1")),
+                && id_indexes.iter().any(|index| step.contains(index.as_str()))),
             "the prefix range did not search the unique index on id: {plan:?}"
         );
     }
