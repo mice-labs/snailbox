@@ -1,4 +1,4 @@
-//! The Inbox: the SQLite store of Messages, and the operations snailbox offers on it.
+//! The Store: the SQLite store of Messages, and the operations snailbox offers on it.
 
 use std::num::NonZeroUsize;
 use std::path::Path;
@@ -15,20 +15,20 @@ use crate::message::{IdPrefix, Message, MessageId, Name, NewMessage};
 mod body;
 pub use body::{Body, BodySource};
 
-const DATABASE_FILE: &str = "inbox.sqlite3";
+const DATABASE_FILE: &str = "store.sqlite3";
 
-// Several agents may write to one Inbox at once, each in its own process; SQLite lets one
+// Several agents may write to one Store at once, each in its own process; SQLite lets one
 // write at a time, so the others wait up to this long for the lock rather than fail. Set here
 // rather than left to rusqlite's default so the guarantee does not move with the dependency.
 const WRITER_WAIT: Duration = Duration::from_secs(30);
 
-// `seq` is the Inbox's own sequence number (ADR 0001), assigned by the insert itself.
+// `seq` is the Store's own sequence number (ADR 0001), assigned by the insert itself.
 // AUTOINCREMENT keeps it from ever reusing a number, so a Message stored later always sorts
 // later. `created_at` is RFC 3339 text in UTC, since SQLite has no date type. The indexes are
-// IF NOT EXISTS so an Inbox created before they existed gains them on its next open, with no
+// IF NOT EXISTS so a Store created before they existed gains them on its next open, with no
 // migration step; without the one on parent each Downthread step of a thread filter scans
 // the table. SQLite enforces the REFERENCES clauses per connection, only where foreign_keys is
-// on. Inbox::open sets it on each connection it opens, before any transaction, since inside one
+// on. Store::open sets it on each connection it opens, before any transaction, since inside one
 // SQLite ignores the pragma; setting it keeps them enforced whatever the build default is
 // (snailbox-8ly.1.22). A connection opened another way enforces them only if it sets the pragma
 // or its SQLite build defaults it on, as rusqlite's `bundled` build (Cargo.toml) does with
@@ -39,7 +39,7 @@ const WRITER_WAIT: Duration = Duration::from_secs(30);
 // upthread one (messages.id = upthread.id) compares in NOCASE and the downthread one
 // (messages.parent = downthread.id) compares exactly, which is safe because parent is only
 // ever written from an id already stored. CREATE TABLE IF NOT EXISTS leaves an existing table as it is, so
-// an Inbox whose messages table predates COLLATE NOCASE keeps a BINARY id column and matches a
+// a Store whose messages table predates COLLATE NOCASE keeps a BINARY id column and matches a
 // prefix only in the case stored (lower case, as ids are written); there is no migration.
 const SCHEMA: &str = "
     CREATE TABLE IF NOT EXISTS messages (
@@ -62,7 +62,7 @@ const SCHEMA: &str = "
     CREATE INDEX IF NOT EXISTS receivers_by_name ON receivers (name);
 ";
 
-pub struct Inbox {
+pub struct Store {
     connection: Connection,
 }
 
@@ -109,23 +109,23 @@ impl std::fmt::Display for NoMessageFor {
 
 impl std::error::Error for NoMessageFor {}
 
-impl Inbox {
-    /// Opens the Inbox in `folder`, creating the folder and database on first use.
+impl Store {
+    /// Opens the Store in `folder`, creating the folder and database on first use.
     pub fn open(folder: &Path) -> Result<Self> {
         location::ensure_folder(folder)?;
         let path = folder.join(DATABASE_FILE);
         location::ensure_private_file(&path)?;
         let connection = Connection::open(&path)
-            .with_context(|| format!("cannot open the Inbox at {}", path.display()))?;
+            .with_context(|| format!("cannot open the Store at {}", path.display()))?;
         connection
             .busy_timeout(WRITER_WAIT)
-            .context("cannot set up the Inbox")?;
+            .context("cannot set up the Store")?;
         connection
             .pragma_update(None, "foreign_keys", true)
-            .context("cannot set up the Inbox")?;
+            .context("cannot set up the Store")?;
         connection
             .execute_batch(SCHEMA)
-            .context("cannot set up the Inbox")?;
+            .context("cannot set up the Store")?;
         Ok(Self { connection })
     }
 
@@ -196,7 +196,7 @@ impl Inbox {
         named_by(self.resolve(prefix), IdArgument::Show)
     }
 
-    /// The Messages matching `filter`, in the order this Inbox stored them, oldest first
+    /// The Messages matching `filter`, in the order this Store stored them, oldest first
     /// (ADR 0001); creation time plays no part in the order. When the limit cuts the matches,
     /// the oldest are kept if `after` is given and the newest otherwise, and the listing says
     /// what was left out and where to continue.
@@ -277,7 +277,7 @@ fn named_by<T>(result: Result<T>, argument: IdArgument) -> Result<T> {
 fn message_from_row(row: &Row<'_>) -> Result<Message> {
     let receivers_json: String = row.get("receivers")?;
     let receivers: Vec<Name> = serde_json::from_str(&receivers_json)
-        .with_context(|| format!("the Inbox holds malformed Receivers {receivers_json}"))?;
+        .with_context(|| format!("the Store holds malformed Receivers {receivers_json}"))?;
     Ok(Message {
         id: row.get("id")?,
         sender: row.get("sender")?,
@@ -296,7 +296,7 @@ fn message_from_row(row: &Row<'_>) -> Result<Message> {
 fn created_at_from_row(row: &Row<'_>) -> Result<DateTime<Utc>> {
     let stored: String = row.get("created_at")?;
     Ok(DateTime::parse_from_rfc3339(&stored)
-        .with_context(|| format!("the Inbox holds a malformed time {stored}"))?
+        .with_context(|| format!("the Store holds a malformed time {stored}"))?
         .with_timezone(&Utc))
 }
 
@@ -306,9 +306,9 @@ pub struct ListFilter {
     pub to: Option<Name>,
     /// Matches a Message whose Sender is this name.
     pub from: Option<Name>,
-    /// Matches only Messages this Inbox stored after the Message with this id or prefix.
+    /// Matches only Messages this Store stored after the Message with this id or prefix.
     pub after: Option<IdPrefix>,
-    /// Matches only Messages this Inbox stored before the Message with this id or prefix.
+    /// Matches only Messages this Store stored before the Message with this id or prefix.
     pub before: Option<IdPrefix>,
     /// Matches only the Message with this id or prefix and the Messages it replies to, at any
     /// depth.
@@ -385,7 +385,7 @@ const INSERT_RECEIVERS_SQL: &str = "INSERT INTO receivers (seq, position, name)
 
 // A prefix match written as a range on id, the form the unique index on id serves (the test
 // the_prefix_range_searches_the_unique_index_on_id records its plan). id is COLLATE NOCASE,
-// which folds only ASCII letters, so on an Inbox created with it the range compares the prefix
+// which folds only ASCII letters, so on a Store created with it the range compares the prefix
 // in either letter case (an older BINARY id column matches only the case stored), and
 // U+10FFFF still sorts after every character an id holds: the range ends past every id with
 // the prefix. A collation that ordered otherwise would need another upper bound.
@@ -452,7 +452,7 @@ const LIST_NEWEST_SQL: &str = list_sql!("DESC");
 mod test_folder {
     use std::path::Path;
 
-    /// A folder under the temp directory for one test's Inbox, removed on drop.
+    /// A folder under the temp directory for one test's Store, removed on drop.
     pub struct TempFolder(std::path::PathBuf);
 
     impl TempFolder {
@@ -475,7 +475,7 @@ mod test_folder {
     }
 }
 
-// These tests pin the rules the Inbox module decides: Limit's default and its refusal of zero and
+// These tests pin the rules the Store module decides: Limit's default and its refusal of zero and
 // of a non-number, and the refusal of a stored blank subject on show and list. They go through the
 // module's public types, never the command line; the blank subject is written at the database
 // because the CLI never stores one.
@@ -501,9 +501,9 @@ mod rule_tests {
         }
     }
 
-    fn store(inbox: &mut Inbox, count: usize) {
+    fn store_messages(store: &mut Store, count: usize) {
         for _ in 0..count {
-            inbox
+            store
                 .create(&NewMessage {
                     sender: name("alice"),
                     receivers: vec![name("bob")],
@@ -518,10 +518,10 @@ mod rule_tests {
     #[test]
     fn a_listing_without_a_limit_keeps_the_most_recent_fifty() {
         let folder = TempFolder::new("default-limit");
-        let mut inbox = Inbox::open(folder.path()).expect("the Inbox opens");
-        store(&mut inbox, 52);
+        let mut store = Store::open(folder.path()).expect("the Store opens");
+        store_messages(&mut store, 52);
 
-        let listing = inbox.list(&unfiltered(Limit::default())).expect("lists");
+        let listing = store.list(&unfiltered(Limit::default())).expect("lists");
 
         assert_eq!(listing.messages.len(), 50);
         assert_eq!(listing.left_out.expect("two were left out").count, 2);
@@ -534,8 +534,8 @@ mod rule_tests {
 
         for blank in ["", "  ", "\t"] {
             let folder = TempFolder::new("blank-stored-subject");
-            let inbox = Inbox::open(folder.path()).expect("the Inbox opens");
-            inbox
+            let store = Store::open(folder.path()).expect("the Store opens");
+            store
                 .connection
                 .execute(
                     "INSERT INTO messages (id, sender, subject, body, created_at, parent)
@@ -543,7 +543,7 @@ mod rule_tests {
                     [stored_id, blank],
                 )
                 .expect("the Message is stored");
-            inbox
+            store
                 .connection
                 .execute(
                     "INSERT INTO receivers (seq, position, name)
@@ -552,11 +552,11 @@ mod rule_tests {
                 )
                 .expect("the Receiver is stored");
 
-            let shown = inbox
+            let shown = store
                 .show(&stored_id[..8].parse().expect("a prefix"))
                 .err()
                 .expect("show refuses");
-            let listed = inbox
+            let listed = store
                 .list(&unfiltered(Limit::default()))
                 .err()
                 .expect("list refuses");
@@ -587,8 +587,8 @@ mod rule_tests {
     }
 }
 
-// These tests pin the guarantee that an Inbox refuses a row whose REFERENCES name nothing, not
-// the foreign_keys pragma Inbox::open sets: on rusqlite's `bundled` build, which defaults the
+// These tests pin the guarantee that a Store refuses a row whose REFERENCES name nothing, not
+// the foreign_keys pragma Store::open sets: on rusqlite's `bundled` build, which defaults the
 // pragma on, they pass without it too. They test at the database because the CLI never writes
 // such a row.
 #[cfg(test)]
@@ -607,9 +607,9 @@ mod tests {
     #[test]
     fn a_message_whose_parent_names_no_message_is_refused() {
         let folder = TempFolder::new("fk-parent");
-        let inbox = Inbox::open(folder.path()).expect("the Inbox opens");
+        let store = Store::open(folder.path()).expect("the Store opens");
 
-        let result = inbox.connection.execute(
+        let result = store.connection.execute(
             "INSERT INTO messages (id, sender, subject, body, created_at, parent)
              VALUES ('33333333-3333-4333-8333-333333333333', 'alice', 'hi', NULL,
                      '2026-11-27T00:00:00Z', 'no-such-id')",
@@ -621,10 +621,10 @@ mod tests {
 
     const STORED_ID: &str = "abcdef01-3333-4333-8333-333333333333";
 
-    fn inbox_holding_one_message(name: &str) -> (TempFolder, Inbox) {
+    fn store_holding_one_message(name: &str) -> (TempFolder, Store) {
         let folder = TempFolder::new(name);
-        let inbox = Inbox::open(folder.path()).expect("the Inbox opens");
-        inbox
+        let store = Store::open(folder.path()).expect("the Store opens");
+        store
             .connection
             .execute(
                 "INSERT INTO messages (id, sender, subject, body, created_at, parent)
@@ -632,15 +632,15 @@ mod tests {
                 [STORED_ID],
             )
             .expect("the Message is stored");
-        (folder, inbox)
+        (folder, store)
     }
 
     #[test]
     fn the_id_column_matches_a_prefix_bound_as_typed_in_either_letter_case() {
-        let (_folder, inbox) = inbox_holding_one_message("nocase-prefix");
+        let (_folder, store) = store_holding_one_message("nocase-prefix");
 
         for typed in ["ABCDEF01-33", "abcdef01-33", "AbCdEf01-33"] {
-            let ids: Vec<String> = inbox
+            let ids: Vec<String> = store
                 .connection
                 .prepare(RESOLVE_ID_SQL)
                 .expect("the query prepares")
@@ -657,9 +657,9 @@ mod tests {
     // still searches it rather than scanning the table.
     #[test]
     fn the_prefix_range_searches_the_unique_index_on_id() {
-        let (_folder, inbox) = inbox_holding_one_message("prefix-plan");
+        let (_folder, store) = store_holding_one_message("prefix-plan");
 
-        let id_indexes: Vec<String> = inbox
+        let id_indexes: Vec<String> = store
             .connection
             .prepare(
                 "SELECT list.name FROM pragma_index_list('messages') AS list
@@ -672,7 +672,7 @@ mod tests {
             .expect("the rows read");
         assert!(!id_indexes.is_empty(), "no index on id");
 
-        let plan: Vec<String> = inbox
+        let plan: Vec<String> = store
             .connection
             .prepare(&format!("EXPLAIN QUERY PLAN {RESOLVE_ID_SQL}"))
             .expect("the plan prepares")
@@ -691,9 +691,9 @@ mod tests {
     #[test]
     fn a_receiver_whose_seq_names_no_message_is_refused() {
         let folder = TempFolder::new("fk-receiver");
-        let inbox = Inbox::open(folder.path()).expect("the Inbox opens");
+        let store = Store::open(folder.path()).expect("the Store opens");
 
-        let result = inbox.connection.execute(
+        let result = store.connection.execute(
             "INSERT INTO receivers (seq, position, name) VALUES (999, 0, 'bob')",
             [],
         );

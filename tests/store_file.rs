@@ -1,10 +1,10 @@
-//! The Inbox's database file as a release before this one left it: an Inbox written with the
+//! The Store's database file as a release before this one left it: a Store written with the
 //! schema that had no indexes still opens and lists, and gains the indexes on that open, and
 //! still shows a Message's body and parent; and a stored creation time that is not an RFC 3339
 //! time, one with no offset included, fails `show` and `list` with an error saying so; and a
 //! stored id that is not a Message id fails `show`, `create --reply-to` and `list --after` with
 //! rusqlite's conversion error, as a stored parent that is not one fails `show`. These tests
-//! write the database file directly, since the command line cannot produce an index-less Inbox,
+//! write the database file directly, since the command line cannot produce an index-less Store,
 //! a malformed time or a malformed id; everything they check is the built binary's output,
 //! apart from the index names, which only the file shows.
 
@@ -16,7 +16,7 @@ use common::{create, snailbox, stderr, stdout, TempFolder, DATABASE_FILE_NAME};
 use rusqlite::Connection;
 
 // The tables of today's schema with none of the indexes on messages.parent, messages.sender
-// and receivers.name, standing in for an Inbox created before they existed.
+// and receivers.name, standing in for a Store created before they existed.
 const SCHEMA_WITHOUT_INDEXES: &str = "
     CREATE TABLE messages (
         seq        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,10 +42,10 @@ fn database(home: &Path) -> PathBuf {
     home.join(DATABASE_FILE_NAME)
 }
 
-/// Writes an Inbox with the index-less schema holding a Message and a Reply to it, each with
+/// Writes a Store with the index-less schema holding a Message and a Reply to it, each with
 /// `created_at` as its stored creation time.
-fn write_inbox_without_indexes(home: &Path, created_at: &str) {
-    let connection = Connection::open(database(home)).expect("the test can create the Inbox");
+fn write_store_without_indexes(home: &Path, created_at: &str) {
+    let connection = Connection::open(database(home)).expect("the test can create the Store");
     connection
         .execute_batch(SCHEMA_WITHOUT_INDEXES)
         .expect("the old schema applies");
@@ -62,7 +62,7 @@ fn write_inbox_without_indexes(home: &Path, created_at: &str) {
 
 /// The names of the indexes snailbox creates, as the database file lists them.
 fn index_names(home: &Path) -> Vec<String> {
-    let connection = Connection::open(database(home)).expect("the Inbox opens");
+    let connection = Connection::open(database(home)).expect("the Store opens");
     let mut statement = connection
         .prepare(
             "SELECT name FROM sqlite_master
@@ -84,9 +84,9 @@ const EXPECTED_INDEXES: [&str; 3] = [
 ];
 
 #[test]
-fn an_inbox_without_indexes_opens_lists_and_gains_them() {
+fn a_store_without_indexes_opens_lists_and_gains_them() {
     let home = TempFolder::new("file-old-schema");
-    write_inbox_without_indexes(home.path(), "2026-11-26T01:02:03Z");
+    write_store_without_indexes(home.path(), "2026-11-26T01:02:03Z");
 
     let output = snailbox(
         home.path(),
@@ -115,9 +115,9 @@ fn an_inbox_without_indexes_opens_lists_and_gains_them() {
 }
 
 #[test]
-fn an_inbox_without_indexes_still_shows_body_and_parent() {
+fn a_store_without_indexes_still_shows_body_and_parent() {
     let home = TempFolder::new("file-old-schema-show");
-    write_inbox_without_indexes(home.path(), "2026-11-26T01:02:03Z");
+    write_store_without_indexes(home.path(), "2026-11-26T01:02:03Z");
 
     let output = snailbox(home.path(), &["show", REPLY_ID, "--json"]);
 
@@ -130,7 +130,7 @@ fn an_inbox_without_indexes_still_shows_body_and_parent() {
 }
 
 #[test]
-fn a_new_inbox_has_the_indexes() {
+fn a_new_store_has_the_indexes() {
     let home = TempFolder::new("file-new-schema");
     create(
         home.path(),
@@ -140,11 +140,11 @@ fn a_new_inbox_has_the_indexes() {
     assert_eq!(index_names(home.path()), EXPECTED_INDEXES);
 }
 
-/// Asserts that `show` and `list` each fail on an Inbox whose creation times are `stored`,
+/// Asserts that `show` and `list` each fail on a Store whose creation times are `stored`,
 /// with an error quoting it.
 fn assert_show_and_list_reject_time(name: &str, stored: &str) {
     let home = TempFolder::new(name);
-    write_inbox_without_indexes(home.path(), stored);
+    write_store_without_indexes(home.path(), stored);
 
     for args in [&["show", ROOT_ID][..], &["list"][..]] {
         let output = snailbox(home.path(), args);
@@ -153,7 +153,7 @@ fn assert_show_and_list_reject_time(name: &str, stored: &str) {
         assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
         assert!(
             stderr(&output).starts_with(&format!(
-                "snailbox: the Inbox holds a malformed time {stored}: "
+                "snailbox: the Store holds a malformed time {stored}: "
             )),
             "{args:?} stderr was {}",
             stderr(&output)
@@ -175,7 +175,7 @@ fn a_creation_time_without_an_offset_is_malformed() {
 fn a_malformed_stored_id_fails_show_reply_to_and_list_after() {
     let home = TempFolder::new("file-malformed-id");
     let connection =
-        Connection::open(database(home.path())).expect("the test can create the Inbox");
+        Connection::open(database(home.path())).expect("the test can create the Store");
     connection
         .execute_batch(SCHEMA_WITHOUT_INDEXES)
         .expect("the schema applies");
@@ -218,7 +218,7 @@ fn a_malformed_stored_id_fails_show_reply_to_and_list_after() {
 fn a_malformed_stored_parent_fails_show() {
     let home = TempFolder::new("file-malformed-parent");
     let connection =
-        Connection::open(database(home.path())).expect("the test can create the Inbox");
+        Connection::open(database(home.path())).expect("the test can create the Store");
     connection
         .execute_batch(SCHEMA_WITHOUT_INDEXES)
         .expect("the schema applies");

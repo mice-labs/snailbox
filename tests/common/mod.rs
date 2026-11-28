@@ -35,10 +35,10 @@ impl Drop for TempFolder {
     }
 }
 
-/// The name of the Inbox's database file, inside the Inbox folder.
-pub const DATABASE_FILE_NAME: &str = "inbox.sqlite3";
+/// The name of the Store's database file, inside the Store folder.
+pub const DATABASE_FILE_NAME: &str = "store.sqlite3";
 
-/// The binary with no Inbox location in its environment, so each test sets the one it means.
+/// The binary with no Store location in its environment, so each test sets the one it means.
 pub fn bare_command() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_snailbox"));
     command

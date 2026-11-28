@@ -107,7 +107,7 @@ fn reply_to_an_unknown_id_fails_and_stores_nothing() {
         "stderr was {}",
         stderr(&output)
     );
-    // Each hex digit is a one-character prefix: exactly one of them resolves while the Inbox
+    // Each hex digit is a one-character prefix: exactly one of them resolves while the Store
     // holds only `existing`, and a stored reply would make a second digit resolve.
     let resolving: Vec<String> = "0123456789abcdef"
         .chars()

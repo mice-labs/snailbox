@@ -1,4 +1,4 @@
-//! Which folder holds the Inbox, and that `create`, `show` and `list` each create it on first
+//! Which folder holds the Store, and that `create`, `show` and `list` each create it on first
 //! use for its owner only. A Message created under one setting is shown again with `SNAILBOX_HOME`
 //! pointing at the folder that setting should have chosen. Other tests read modes: a folder
 //! snailbox creates is 700, and in a folder that already exists with mode 755 the database
@@ -102,7 +102,7 @@ fn create_makes_the_folder_for_its_owner_only() {
     create(&folder, &NEW_MESSAGE);
 
     let mode = std::fs::metadata(&folder)
-        .expect("create made the Inbox folder")
+        .expect("create made the Store folder")
         .permissions()
         .mode();
     assert_eq!(mode & 0o777, 0o700, "mode was {:o}", mode & 0o777);
@@ -114,6 +114,17 @@ fn mode_of(path: &Path) -> u32 {
         .permissions()
         .mode()
         & 0o777
+}
+
+#[test]
+fn a_fresh_home_gets_a_store_sqlite3_database_for_its_owner_only() {
+    let scratch = TempFolder::new("folder-fresh-database");
+    let folder = scratch.path().join("new");
+
+    create(&folder, &NEW_MESSAGE);
+
+    let database = mode_of(&folder.join("store.sqlite3"));
+    assert_eq!(database, 0o600, "database mode was {database:o}");
 }
 
 #[test]
@@ -145,11 +156,11 @@ fn show_makes_the_folder_for_its_owner_only() {
         stderr(&output).starts_with(&format!(
             "snailbox: no Message has an id starting with {unknown};"
         )),
-        "show did not reach the new Inbox: stderr was {}",
+        "show did not reach the new Store: stderr was {}",
         stderr(&output)
     );
     let mode = std::fs::metadata(&folder)
-        .expect("show made the Inbox folder")
+        .expect("show made the Store folder")
         .permissions()
         .mode();
     assert_eq!(mode & 0o777, 0o700, "mode was {:o}", mode & 0o777);
@@ -166,7 +177,7 @@ fn list_makes_the_folder_for_its_owner_only() {
     assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
     assert!(output.stderr.is_empty(), "stderr was {}", stderr(&output));
     let mode = std::fs::metadata(&folder)
-        .expect("list made the Inbox folder")
+        .expect("list made the Store folder")
         .permissions()
         .mode();
     assert_eq!(mode & 0o777, 0o700, "mode was {:o}", mode & 0o777);

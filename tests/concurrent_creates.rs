@@ -1,4 +1,4 @@
-//! Many `create` commands run at once against one Inbox, as separate processes: none fails and
+//! Many `create` commands run at once against one Store, as separate processes: none fails and
 //! none is lost, and paging with `--after` and a small `--limit` returns each Message exactly
 //! once (ADR 0001). Each test runs the built binary against its own temporary `SNAILBOX_HOME`.
 
@@ -68,7 +68,7 @@ fn page(home: &TempFolder, after: &str, limit: usize) -> (Vec<(String, String)>,
 #[test]
 fn concurrent_creates_all_succeed_and_each_message_is_kept() {
     let home = TempFolder::new("concurrent-kept");
-    // The Inbox exists before the writers race, so they contend on writes, not on setup.
+    // The Store exists before the writers race, so they contend on writes, not on setup.
     store(&home, "alice", &["bob"], "start");
 
     let (_, ids) = create_at_once(&home);
@@ -86,7 +86,7 @@ fn concurrent_creates_all_succeed_and_each_message_is_kept() {
 }
 
 #[test]
-fn concurrent_creates_on_a_new_inbox_all_succeed() {
+fn concurrent_creates_on_a_new_store_all_succeed() {
     let home = TempFolder::new("concurrent-new");
 
     // create_at_once fails the test if any writer exits non-zero.

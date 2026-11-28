@@ -1,4 +1,4 @@
-//! `list` prints Messages in the order this Inbox stored them, oldest first, narrowed by
+//! `list` prints Messages in the order this Store stored them, oldest first, narrowed by
 //! `--to` and `--from`. Each test runs the built binary against its own temporary
 //! `SNAILBOX_HOME`.
 
@@ -11,7 +11,7 @@ use common::{
 use serde_json::Value;
 
 #[test]
-fn list_on_a_fresh_inbox_prints_nothing_and_succeeds() {
+fn list_on_a_fresh_store_prints_nothing_and_succeeds() {
     let home = TempFolder::new("list-fresh");
 
     let output = snailbox(home.path(), &["list"]);
@@ -22,7 +22,7 @@ fn list_on_a_fresh_inbox_prints_nothing_and_succeeds() {
 }
 
 #[test]
-fn list_on_an_empty_inbox_with_json_prints_an_object_with_no_messages() {
+fn list_on_an_empty_store_with_json_prints_an_object_with_no_messages() {
     let home = TempFolder::new("list-empty-json");
 
     let output = snailbox(home.path(), &["list", "--json"]);
@@ -68,8 +68,8 @@ fn list_returns_messages_oldest_stored_first() {
     // prove that creation time plays no part: the command line offers no way to give a Message
     // a creation time other than now, and while the system clock does not step back during
     // the test, creation times never run backwards, so a list sorted by creation time would
-    // also pass here; if the clock does step back, this test can fail for that reason alone. That the order is the Inbox's own is pinned by
-    // ADR 0001 and the `ORDER BY seq` in `Inbox::list`.
+    // also pass here; if the clock does step back, this test can fail for that reason alone. That the order is the Store's own is pinned by
+    // ADR 0001 and the `ORDER BY seq` in `Store::list`.
     let subjects: Vec<String> = (0..12).map(|n| format!("message {}", 12 - n)).collect();
     for subject in &subjects {
         store(&home, "alice", &["bob"], subject);

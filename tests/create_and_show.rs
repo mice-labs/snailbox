@@ -228,7 +228,7 @@ fn create_that_cannot_write_says_it_cannot_store_the_message() {
     create(home.path(), &args);
     let set_mode = |mode| {
         std::fs::set_permissions(home.path(), std::fs::Permissions::from_mode(mode))
-            .expect("the test owns the Inbox folder");
+            .expect("the test owns the Store folder");
     };
     // A folder the owner cannot write leaves SQLite no room for its journal, so the insert fails.
     set_mode(0o500);
@@ -238,7 +238,7 @@ fn create_that_cannot_write_says_it_cannot_store_the_message() {
     set_mode(0o700);
     assert!(
         !output.status.success(),
-        "create into a read-only Inbox succeeded"
+        "create into a read-only Store succeeded"
     );
     assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
     assert!(
