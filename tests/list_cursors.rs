@@ -31,6 +31,32 @@ fn subjects(range: std::ops::RangeInclusive<usize>) -> Vec<String> {
     range.map(|n| format!("m{n}")).collect()
 }
 
+/// The lines `list` printed in text form with `args`, and the last of them. Runs the binary
+/// once, so a test that reads both the Messages and the notice reads them from one output.
+fn text_listing(home: &TempFolder, args: &[&str]) -> (Vec<String>, String) {
+    let output = snailbox(home.path(), &[&["list"], args].concat());
+    assert!(output.status.success(), "list failed: {}", stderr(&output));
+    assert!(output.stderr.is_empty(), "stderr was {}", stderr(&output));
+    let lines: Vec<String> = stdout(&output).lines().map(str::to_owned).collect();
+    let last = lines.last().expect("a last line").clone();
+    (lines, last)
+}
+
+/// The subjects of the Message lines among `lines`, in order. A Message line is tab-separated
+/// with the subject last; the notice line has no tab and is skipped.
+fn subjects_of(lines: &[String]) -> Vec<String> {
+    lines
+        .iter()
+        .filter(|line| line.contains('\t'))
+        .map(|line| {
+            line.rsplit('\t')
+                .next()
+                .expect("a subject field")
+                .to_owned()
+        })
+        .collect()
+}
+
 #[test]
 fn after_returns_the_messages_stored_after_the_named_one() {
     let (home, ids) = home_with(4, "after");
@@ -171,15 +197,10 @@ fn limit_defaults_to_fifty_and_the_most_recent_are_kept() {
 fn the_default_limit_of_fifty_applies_with_after_alone() {
     let (home, ids) = home_with(53, "default-limit-after");
 
-    assert_eq!(
-        listed_subjects(&home, &["--after", &ids[0]]),
-        subjects(2..=51)
-    );
+    let (lines, last) = text_listing(&home, &["--after", &ids[0]]);
 
-    let output = snailbox(home.path(), &["list", "--after", &ids[0]]);
-    let text = stdout(&output);
-    let last = text.lines().last().expect("a last line");
-    assert_eq!(text.lines().count(), 51, "output was {text}");
+    assert_eq!(subjects_of(&lines), subjects(2..=51));
+    assert_eq!(lines.len(), 51, "output was {}", lines.join("\n"));
     assert!(
         last.contains("2 newer Messages left out"),
         "last was {last}"
@@ -194,15 +215,10 @@ fn the_default_limit_of_fifty_applies_with_after_alone() {
 fn the_default_limit_of_fifty_applies_with_before_alone() {
     let (home, ids) = home_with(53, "default-limit-before");
 
-    assert_eq!(
-        listed_subjects(&home, &["--before", &ids[52]]),
-        subjects(3..=52)
-    );
+    let (lines, last) = text_listing(&home, &["--before", &ids[52]]);
 
-    let output = snailbox(home.path(), &["list", "--before", &ids[52]]);
-    let text = stdout(&output);
-    let last = text.lines().last().expect("a last line");
-    assert_eq!(text.lines().count(), 51, "output was {text}");
+    assert_eq!(subjects_of(&lines), subjects(3..=52));
+    assert_eq!(lines.len(), 51, "output was {}", lines.join("\n"));
     assert!(
         last.contains("2 older Messages left out"),
         "last was {last}"
@@ -217,18 +233,10 @@ fn the_default_limit_of_fifty_applies_with_before_alone() {
 fn the_default_limit_of_fifty_applies_with_after_and_before() {
     let (home, ids) = home_with(54, "default-limit-range");
 
-    assert_eq!(
-        listed_subjects(&home, &["--after", &ids[0], "--before", &ids[53]]),
-        subjects(2..=51)
-    );
+    let (lines, last) = text_listing(&home, &["--after", &ids[0], "--before", &ids[53]]);
 
-    let output = snailbox(
-        home.path(),
-        &["list", "--after", &ids[0], "--before", &ids[53]],
-    );
-    let text = stdout(&output);
-    let last = text.lines().last().expect("a last line");
-    assert_eq!(text.lines().count(), 51, "output was {text}");
+    assert_eq!(subjects_of(&lines), subjects(2..=51));
+    assert_eq!(lines.len(), 51, "output was {}", lines.join("\n"));
     assert!(
         last.contains("2 newer Messages left out"),
         "last was {last}"
@@ -298,11 +306,9 @@ fn with_before_alone_the_last_n_before_it_are_returned() {
 fn text_output_ends_with_a_line_saying_how_many_were_left_out_and_how_to_get_them() {
     let (home, ids) = home_with(5, "notice-recent");
 
-    let output = snailbox(home.path(), &["list", "--limit", "2"]);
+    let (lines, last) = text_listing(&home, &["--limit", "2"]);
 
-    let text = stdout(&output);
-    let last = text.lines().last().expect("a last line");
-    assert_eq!(text.lines().count(), 3, "output was {text}");
+    assert_eq!(lines.len(), 3, "output was {}", lines.join("\n"));
     assert!(
         last.contains("3 older Messages left out"),
         "last was {last}"
@@ -317,10 +323,8 @@ fn text_output_ends_with_a_line_saying_how_many_were_left_out_and_how_to_get_the
 fn the_notice_after_a_first_n_page_points_at_the_last_message_returned() {
     let (home, ids) = home_with(6, "notice-after");
 
-    let output = snailbox(home.path(), &["list", "--after", &ids[0], "--limit", "2"]);
+    let (_, last) = text_listing(&home, &["--after", &ids[0], "--limit", "2"]);
 
-    let text = stdout(&output);
-    let last = text.lines().last().expect("a last line");
     assert!(
         last.contains("3 newer Messages left out"),
         "last was {last}"
@@ -335,10 +339,8 @@ fn the_notice_after_a_first_n_page_points_at_the_last_message_returned() {
 fn the_notice_with_before_alone_points_at_the_first_message_returned() {
     let (home, ids) = home_with(6, "notice-before");
 
-    let output = snailbox(home.path(), &["list", "--before", &ids[5], "--limit", "2"]);
+    let (_, last) = text_listing(&home, &["--before", &ids[5], "--limit", "2"]);
 
-    let text = stdout(&output);
-    let last = text.lines().last().expect("a last line");
     assert!(
         last.contains("3 older Messages left out"),
         "last was {last}"
@@ -353,10 +355,8 @@ fn the_notice_with_before_alone_points_at_the_first_message_returned() {
 fn the_notice_says_to_replace_only_the_cursor_and_keep_the_other_flags() {
     let (home, _) = home_with(5, "notice-keeps-flags");
 
-    let output = snailbox(home.path(), &["list", "--limit", "2"]);
+    let (_, last) = text_listing(&home, &["--limit", "2"]);
 
-    let text = stdout(&output);
-    let last = text.lines().last().expect("a last line");
     assert!(
         last.contains("same flags") && last.contains("in place of any --before"),
         "last was {last}"
@@ -367,10 +367,8 @@ fn the_notice_says_to_replace_only_the_cursor_and_keep_the_other_flags() {
 fn the_notice_does_not_offer_a_limit_of_zero() {
     let (home, _) = home_with(5, "notice-no-limit-zero");
 
-    let output = snailbox(home.path(), &["list", "--limit", "2"]);
+    let (_, last) = text_listing(&home, &["--limit", "2"]);
 
-    let text = stdout(&output);
-    let last = text.lines().last().expect("a last line");
     assert!(last.contains("left out"), "last was {last}");
     assert!(!last.contains("--limit"), "last was {last}");
 }
@@ -379,10 +377,8 @@ fn the_notice_does_not_offer_a_limit_of_zero() {
 fn the_notice_counts_a_single_message_in_the_singular() {
     let (home, _) = home_with(2, "notice-singular");
 
-    let output = snailbox(home.path(), &["list", "--limit", "1"]);
+    let (_, last) = text_listing(&home, &["--limit", "1"]);
 
-    let text = stdout(&output);
-    let last = text.lines().last().expect("a last line");
     assert!(last.contains("1 older Message left out"), "last was {last}");
     assert!(!last.contains("Messages"), "last was {last}");
 }
@@ -392,9 +388,9 @@ fn no_notice_when_nothing_was_left_out() {
     let (home, _) = home_with(3, "no-notice");
 
     for args in [&["--limit", "3"][..], &[][..]] {
-        let output = snailbox(home.path(), &[&["list"], args].concat());
-        let text = stdout(&output);
-        assert_eq!(text.lines().count(), 3, "output for {args:?} was {text}");
+        let (lines, _) = text_listing(&home, args);
+        let text = lines.join("\n");
+        assert_eq!(lines.len(), 3, "output for {args:?} was {text}");
         assert!(!text.contains("left out"), "output for {args:?} was {text}");
     }
 }
@@ -447,15 +443,11 @@ fn json_with_before_alone_names_the_before_flag_as_next() {
 fn text_notice_with_both_cursors_points_after_the_last_message_returned() {
     let (home, ids) = home_with(7, "notice-range");
 
-    let output = snailbox(
-        home.path(),
-        &[
-            "list", "--after", &ids[0], "--before", &ids[6], "--limit", "2",
-        ],
+    let (_, last) = text_listing(
+        &home,
+        &["--after", &ids[0], "--before", &ids[6], "--limit", "2"],
     );
 
-    let text = stdout(&output);
-    let last = text.lines().last().expect("a last line");
     assert!(
         last.contains("3 newer Messages left out"),
         "last was {last}"
