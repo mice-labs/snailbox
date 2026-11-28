@@ -31,8 +31,8 @@ for none), which clap refuses while parsing the arguments, and a `--body-file` o
 input that is empty or only whitespace, so an upstream command that failed before printing
 anything cannot store a blank Message (one that failed after printing some text still gives
 a body). With no Body source the Message has no body. Subject and body have no length cap of
-snailbox's own; the operating system limits the total size of the command-line arguments, which caps
-`--subject` and `--body` but not `--body-file` or `--stdin`.
+snailbox's own; the operating system limits the total size of the command-line arguments,
+which caps `--subject` and `--body` but not `--body-file` or `--stdin`.
 
 `create` prints only the new Message's full id, a random UUID version 4. `--reply-to` stores
 the Message as a Reply to the named Message, and `show` prints a Reply's parent id (a

@@ -248,10 +248,10 @@ mod tests {
             stdin: false,
         };
 
-        assert!(matches!(
-            Option::<BodySource>::from(text),
-            Some(BodySource::Text(_))
-        ));
+        let source = Option::<BodySource>::from(text).expect("the --body flag names a source");
+
+        assert!(matches!(source, BodySource::Text(_)));
+        assert_eq!(source.read().expect("a text source reads"), "hi");
     }
 
     #[test]
