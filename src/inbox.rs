@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, SecondsFormat, Utc};
+use rusqlite::types::ValueRef;
 use rusqlite::{params, Connection, Row, TransactionBehavior};
 
 use crate::listing::{Cursor, LeftOut, Listing};
@@ -172,8 +173,10 @@ impl Inbox {
     fn resolve_id(&self, prefix: &IdPrefix) -> Result<MessageId> {
         let mut statement = self.connection.prepare(RESOLVE_ID_SQL)?;
         let ids = statement
-            .query_map([prefix.as_str()], |row| row.get("id"))?
-            .collect::<rusqlite::Result<Vec<MessageId>>>()?;
+            .query_and_then([prefix.as_str()], |row| {
+                row.get("id").map_err(|error| malformed_id(row, error))
+            })?
+            .collect::<Result<Vec<MessageId>>>()?;
         one_of(prefix, ids, MessageId::to_string)
     }
 
@@ -279,14 +282,32 @@ fn message_from_row(row: &Row<'_>) -> Result<Message> {
     let receivers: Vec<Name> = serde_json::from_str(&receivers_json)
         .with_context(|| format!("the Inbox holds malformed Receivers {receivers_json}"))?;
     Ok(Message {
-        id: row.get("id")?,
+        id: row.get("id").map_err(|error| malformed_id(row, error))?,
         sender: row.get("sender")?,
         receivers,
         subject: row.get("subject")?,
         body: row.get("body")?,
-        parent: row.get("parent")?,
+        parent: row.get("parent").map_err(|error| malformed_id(row, error))?,
         created_at: created_at_from_row(row)?,
     })
+}
+
+/// The error for an id or parent column holding text that is not a Message id: it names the
+/// column and quotes the stored text, with the parse error as its cause. Any other conversion
+/// error passes through unchanged.
+fn malformed_id(row: &Row<'_>, error: rusqlite::Error) -> anyhow::Error {
+    let rusqlite::Error::FromSqlConversionFailure(index, _, _) = error else {
+        return error.into();
+    };
+    let Ok(ValueRef::Text(text)) = row.get_ref(index) else {
+        return error.into();
+    };
+    let column = row
+        .as_ref()
+        .column_name(index)
+        .expect("a column the row read has a name");
+    let stored = String::from_utf8_lossy(text);
+    anyhow::Error::from(error).context(format!("the Inbox holds a malformed {column} {stored}"))
 }
 
 /// The row's creation time, read as strict RFC 3339; a stored text that is not one fails with
