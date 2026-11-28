@@ -6,8 +6,9 @@
 //! rusqlite's conversion error, as a stored parent that is not one fails `show`; and a blank
 //! stored Receiver name fails `show` and `list` with an error saying the Store holds malformed
 //! Receivers. These tests write the database file directly, since the command line cannot
-//! produce an index-less Store, a malformed time, a malformed id or a blank Receiver name; everything they check is the built binary's output,
-//! apart from the index names, which only the file shows.
+//! produce an index-less Store, a malformed time, a malformed id or a blank Receiver name;
+//! everything they check is the built binary's output, apart from the index names, which only
+//! the file shows.
 
 mod common;
 

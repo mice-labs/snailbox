@@ -68,8 +68,9 @@ fn list_returns_messages_oldest_stored_first() {
     // prove that creation time plays no part: the command line offers no way to give a Message
     // a creation time other than now, and while the system clock does not step back during
     // the test, creation times never run backwards, so a list sorted by creation time would
-    // also pass here; if the clock does step back, this test can fail for that reason alone. That the order is the Store's own is pinned by
-    // ADR 0001 and the `ORDER BY seq` in `Store::list`.
+    // also pass here; if the clock does step back, this test can fail for that reason alone.
+    // That the order is the Store's own is pinned by ADR 0001 and the `ORDER BY seq` in
+    // `Store::list`.
     let subjects: Vec<String> = (0..12).map(|n| format!("message {}", 12 - n)).collect();
     for subject in &subjects {
         store_message(&home, "alice", &["bob"], subject);

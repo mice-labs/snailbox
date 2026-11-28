@@ -26,22 +26,22 @@ const WRITER_WAIT: Duration = Duration::from_secs(30);
 // AUTOINCREMENT keeps it from ever reusing a number, so a Message stored later always sorts
 // later. `created_at` is RFC 3339 text in UTC, since SQLite has no date type. The indexes are
 // IF NOT EXISTS so a database file written with a schema that lacked them gains them on its
-// next open, with no migration step; without the one on parent each Downthread step of a thread filter scans
-// the table. SQLite enforces the REFERENCES clauses per connection, only where foreign_keys is
-// on. Store::open sets it on each connection it opens, before any transaction, since inside one
-// SQLite ignores the pragma; setting it keeps them enforced whatever the build default is
-// (snailbox-8ly.1.22). A connection opened another way enforces them only if it sets the pragma
-// or its SQLite build defaults it on, as rusqlite's `bundled` build (Cargo.toml) does with
-// SQLITE_DEFAULT_FOREIGN_KEYS=1. `id` is COLLATE NOCASE because UUID text is case-insensitive
+// next open, with no migration step; without the one on parent each Downthread step of a
+// thread filter scans the table. SQLite enforces the REFERENCES clauses per connection, only
+// where foreign_keys is on. Store::open sets it on each connection it opens, before any
+// transaction, since inside one SQLite ignores the pragma; setting it keeps them enforced
+// whatever the build default is (snailbox-8ly.1.22). A connection opened another way enforces
+// them only if it sets the pragma or its SQLite build defaults it on, as rusqlite's `bundled`
+// build (Cargo.toml) does with SQLITE_DEFAULT_FOREIGN_KEYS=1. `id` is COLLATE NOCASE because UUID text is case-insensitive
 // (RFC 9562): a prefix is bound as typed and still matches, in either letter case. The unique
 // index takes that collation from `id`; `parent` stays BINARY. SQLite checks the foreign key
 // under the referenced column's collation, so it compares in NOCASE; of the thread joins, the
 // upthread one (messages.id = upthread.id) compares in NOCASE and the downthread one
 // (messages.parent = downthread.id) compares exactly, which is safe because parent is only
 // ever written from an id already stored. CREATE TABLE IF NOT EXISTS leaves an existing table
-// as it is, so a database file whose messages table was written without COLLATE NOCASE keeps a BINARY id
-// column and matches a prefix only in the case stored (lower case, as ids are written); there
-// is no migration.
+// as it is, so a database file whose messages table was written without COLLATE NOCASE keeps a
+// BINARY id column and matches a prefix only in the case stored (lower case, as ids are
+// written); there is no migration.
 const SCHEMA: &str = "
     CREATE TABLE IF NOT EXISTS messages (
         seq        INTEGER PRIMARY KEY AUTOINCREMENT,
