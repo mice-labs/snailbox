@@ -1,5 +1,5 @@
 //! Where `create` takes a Message's body from, and the rule on it: a file or standard input that
-//! is not blank.
+//! is not blank, and a `--body` that is not empty.
 //!
 //! This module holds one source. The command-line layer guarantees that at most one is given: it
 //! states that to clap, which refuses a caller who names two.
@@ -20,9 +20,13 @@ impl BodySource {
     /// The body this source gives. A file or standard input that is empty or holds only
     /// whitespace is an error, so an upstream command that failed before printing anything
     /// cannot leave a blank Message; one that failed after printing some text still gives that
-    /// text as the body. `--body` is taken as given.
+    /// text as the body. An empty `--body` is an error too, since a stored empty body would differ
+    /// from a Message with no body; any other `--body` is taken as given.
     pub fn read(self) -> Result<String> {
         match self {
+            Self::Text(text) if text.is_empty() => {
+                bail!("--body is empty; pass a non-empty --body or leave the body out for none")
+            }
             Self::Text(text) => Ok(text),
             Self::File(path) => {
                 let text = std::fs::read_to_string(&path)

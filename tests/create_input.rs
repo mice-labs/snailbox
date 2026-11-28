@@ -1,6 +1,6 @@
 //! `create` rejects a Message missing its Sender, Receiver or subject, or giving one of them a
 //! blank name or subject, takes its body from `--body`, `--body-file` or `--stdin` (at most
-//! one), and refuses an empty or blank body file or standard input. Each test runs the built
+//! one), and refuses an empty `--body` and an empty or blank body file or standard input. Each test runs the built
 //! binary against its own temporary `SNAILBOX_HOME`.
 
 mod common;
@@ -283,6 +283,18 @@ fn create_rejects_standard_input_of_only_whitespace() {
     let output = run_create(home.path(), &with(&["--stdin"]), b"\n \t\n");
 
     assert_rejected(&output, "standard input is empty or blank");
+}
+
+#[test]
+fn create_rejects_an_empty_body_and_stores_nothing() {
+    let home = TempFolder::new("empty-body");
+
+    let output = run_create(home.path(), &with(&["--body", ""]), b"");
+
+    assert_rejected(&output, "--body is empty");
+    assert_rejected(&output, "leave the body out for none");
+    let listing = common::snailbox(home.path(), &["list"]);
+    assert!(stdout(&listing).is_empty(), "stored: {}", stdout(&listing));
 }
 
 #[test]
