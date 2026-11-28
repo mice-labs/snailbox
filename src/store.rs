@@ -25,7 +25,7 @@ const WRITER_WAIT: Duration = Duration::from_secs(30);
 // `seq` is the Store's own sequence number (ADR 0001), assigned by the insert itself.
 // AUTOINCREMENT keeps it from ever reusing a number, so a Message stored later always sorts
 // later. `created_at` is RFC 3339 text in UTC, since SQLite has no date type. The indexes are
-// IF NOT EXISTS so a Store created before they existed gains them on its next open, with no
+// IF NOT EXISTS so a database file written with a schema that lacked them gains them on its next open, with no
 // migration step; without the one on parent each Downthread step of a thread filter scans
 // the table. SQLite enforces the REFERENCES clauses per connection, only where foreign_keys is
 // on. Store::open sets it on each connection it opens, before any transaction, since inside one
@@ -39,8 +39,9 @@ const WRITER_WAIT: Duration = Duration::from_secs(30);
 // upthread one (messages.id = upthread.id) compares in NOCASE and the downthread one
 // (messages.parent = downthread.id) compares exactly, which is safe because parent is only
 // ever written from an id already stored. CREATE TABLE IF NOT EXISTS leaves an existing table as it is, so
-// a Store whose messages table predates COLLATE NOCASE keeps a BINARY id column and matches a
-// prefix only in the case stored (lower case, as ids are written); there is no migration.
+// a database file whose messages table was written without COLLATE NOCASE keeps a BINARY id
+// column and matches a prefix only in the case stored (lower case, as ids are written); there
+// is no migration.
 const SCHEMA: &str = "
     CREATE TABLE IF NOT EXISTS messages (
         seq        INTEGER PRIMARY KEY AUTOINCREMENT,

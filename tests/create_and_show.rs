@@ -182,7 +182,7 @@ fn a_receiver_name_holding_a_comma_comes_back_whole_and_in_order() {
 /// the `to` array `show --json` prints for it, failing the test unless `create` succeeds and
 /// `show` succeeds with nothing on standard error.
 fn shown_receivers(home: &TempFolder, receivers: &[&str]) -> Value {
-    let id = common::store(home, "alice", receivers, "hello");
+    let id = common::store_message(home, "alice", receivers, "hello");
 
     let output = snailbox(home.path(), &["show", &id, "--json"]);
 

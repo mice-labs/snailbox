@@ -1,8 +1,10 @@
 //! Which folder holds the Store, and that `create`, `show` and `list` each create it on first
 //! use for its owner only. A Message created under one setting is shown again with `SNAILBOX_HOME`
-//! pointing at the folder that setting should have chosen. Other tests read modes: a folder
-//! snailbox creates is 700, and in a folder that already exists with mode 755 the database
-//! file snailbox creates is 600 while the folder keeps 755.
+//! pointing at the folder that setting should have chosen, and with none of the location
+//! variables set the command fails saying it cannot find the Store folder. Other tests read
+//! modes: a folder snailbox creates is 700 and holds a `store.sqlite3` database file that is
+//! 600, and in a folder that already exists with mode 755 the database file snailbox creates
+//! is 600 while the folder keeps 755.
 
 mod common;
 
@@ -123,8 +125,25 @@ fn a_fresh_home_gets_a_store_sqlite3_database_for_its_owner_only() {
 
     create(&folder, &NEW_MESSAGE);
 
+    // The literal, not DATABASE_FILE_NAME: this test pins the file name the binary creates.
     let database = mode_of(&folder.join("store.sqlite3"));
     assert_eq!(database, 0o600, "database mode was {database:o}");
+}
+
+#[test]
+fn with_no_location_variable_set_the_command_says_it_cannot_find_the_store_folder() {
+    let output = bare_command()
+        .env_remove("HOME")
+        .args(["list"])
+        .output()
+        .expect("the snailbox binary runs");
+
+    assert!(!output.status.success(), "list succeeded");
+    assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
+    assert_eq!(
+        stderr(&output),
+        "snailbox: cannot find the Store folder: SNAILBOX_HOME, XDG_DATA_HOME and HOME are unset\n"
+    );
 }
 
 #[test]

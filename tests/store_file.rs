@@ -1,4 +1,4 @@
-//! The Store's database file as a release before this one left it: a Store written with the
+//! The Store's database file as an older schema left it: a database file written with the
 //! schema that had no indexes still opens and lists, and gains the indexes on that open, and
 //! still shows a Message's body and parent; and a stored creation time that is not an RFC 3339
 //! time, one with no offset included, fails `show` and `list` with an error saying so; and a

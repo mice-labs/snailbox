@@ -6,7 +6,7 @@
 mod common;
 
 use common::{
-    create, snailbox, stderr, stdout, store, two_ids_sharing_a_first_character, TempFolder,
+    create, snailbox, stderr, stdout, store_message, two_ids_sharing_a_first_character, TempFolder,
 };
 use serde_json::Value;
 use std::process::Output;
@@ -211,7 +211,7 @@ fn a_prefix_matching_several_messages_is_reported_in_the_letter_case_it_was_type
     // A letter digit, so that its upper-case form differs from the stored lower-case one.
     let mut seen: Vec<String> = Vec::new();
     let typed = loop {
-        let id = store(&home, "alice", &["bob"], "m");
+        let id = store_message(&home, "alice", &["bob"], "m");
         let first = id.chars().next().expect("an id is not empty");
         if first.is_ascii_alphabetic() && seen.iter().any(|other| other.starts_with(first)) {
             break first.to_ascii_uppercase().to_string();

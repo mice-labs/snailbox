@@ -5,7 +5,7 @@
 mod common;
 
 use common::{
-    create, listed_ids, listed_messages, listed_subjects, snailbox, stderr, stdout, store,
+    create, listed_ids, listed_messages, listed_subjects, snailbox, stderr, stdout, store_message,
     TempFolder,
 };
 use serde_json::Value;
@@ -38,7 +38,7 @@ fn list_on_an_empty_store_with_json_prints_an_object_with_no_messages() {
 #[test]
 fn list_prints_one_line_per_message_with_short_id_time_sender_receivers_and_subject() {
     let home = TempFolder::new("list-line");
-    let id = store(&home, "alice", &["bob", "carol"], "lunch?");
+    let id = store_message(&home, "alice", &["bob", "carol"], "lunch?");
 
     let output = snailbox(home.path(), &["list"]);
 
@@ -72,7 +72,7 @@ fn list_returns_messages_oldest_stored_first() {
     // ADR 0001 and the `ORDER BY seq` in `Store::list`.
     let subjects: Vec<String> = (0..12).map(|n| format!("message {}", 12 - n)).collect();
     for subject in &subjects {
-        store(&home, "alice", &["bob"], subject);
+        store_message(&home, "alice", &["bob"], subject);
     }
 
     assert_eq!(listed_subjects(&home, &[]), subjects);
@@ -81,7 +81,7 @@ fn list_returns_messages_oldest_stored_first() {
 #[test]
 fn a_tab_or_newline_in_a_field_does_not_break_the_list_line() {
     let home = TempFolder::new("list-escape");
-    store(
+    store_message(
         &home,
         "al\tice",
         &["bo\nb", "ca\trol"],
@@ -104,8 +104,8 @@ fn a_tab_or_newline_in_a_field_does_not_break_the_list_line() {
 #[test]
 fn list_json_returns_the_same_messages_with_full_ids_in_sequence_number_order() {
     let home = TempFolder::new("list-json");
-    let first = store(&home, "alice", &["bob"], "first");
-    let second = store(&home, "carol", &["bob", "dave"], "second");
+    let first = store_message(&home, "alice", &["bob"], "first");
+    let second = store_message(&home, "carol", &["bob", "dave"], "second");
 
     let output = snailbox(home.path(), &["list", "--json"]);
 
@@ -126,7 +126,7 @@ fn list_json_returns_the_same_messages_with_full_ids_in_sequence_number_order() 
 #[test]
 fn list_json_messages_carry_no_body_or_parent_while_show_json_does() {
     let home = TempFolder::new("list-json-no-body");
-    let root = store(&home, "alice", &["bob"], "root");
+    let root = store_message(&home, "alice", &["bob"], "root");
     let reply = create(
         home.path(),
         &[
@@ -161,9 +161,9 @@ fn list_json_messages_carry_no_body_or_parent_while_show_json_does() {
 #[test]
 fn to_matches_a_message_also_addressed_to_others() {
     let home = TempFolder::new("list-to");
-    store(&home, "alice", &["bob"], "only bob");
-    store(&home, "alice", &["carol", "bob"], "carol and bob");
-    store(&home, "alice", &["carol"], "only carol");
+    store_message(&home, "alice", &["bob"], "only bob");
+    store_message(&home, "alice", &["carol", "bob"], "carol and bob");
+    store_message(&home, "alice", &["carol"], "only carol");
 
     assert_eq!(
         listed_subjects(&home, &["--to", "bob"]),
@@ -174,9 +174,9 @@ fn to_matches_a_message_also_addressed_to_others() {
 #[test]
 fn to_matches_a_later_or_repeated_receiver_and_lists_the_message_once() {
     let home = TempFolder::new("list-to-later");
-    let three = store(&home, "alice", &["bob", "carol", "dave"], "three");
-    let repeated = store(&home, "alice", &["erin", "dave", "erin"], "repeated");
-    store(&home, "alice", &["bob"], "only bob");
+    let three = store_message(&home, "alice", &["bob", "carol", "dave"], "three");
+    let repeated = store_message(&home, "alice", &["erin", "dave", "erin"], "repeated");
+    store_message(&home, "alice", &["bob"], "only bob");
 
     assert_eq!(
         listed_ids(&home, &["--to", "dave"]),
@@ -188,9 +188,9 @@ fn to_matches_a_later_or_repeated_receiver_and_lists_the_message_once() {
 #[test]
 fn from_matches_only_that_sender() {
     let home = TempFolder::new("list-from");
-    store(&home, "alice", &["bob"], "from alice");
-    store(&home, "carol", &["bob"], "from carol");
-    store(&home, "alice", &["dave"], "from alice again");
+    store_message(&home, "alice", &["bob"], "from alice");
+    store_message(&home, "carol", &["bob"], "from carol");
+    store_message(&home, "alice", &["dave"], "from alice again");
 
     assert_eq!(
         listed_subjects(&home, &["--from", "alice"]),
@@ -201,9 +201,9 @@ fn from_matches_only_that_sender() {
 #[test]
 fn to_and_from_together_return_only_messages_satisfying_both() {
     let home = TempFolder::new("list-both");
-    store(&home, "alice", &["bob"], "alice to bob");
-    store(&home, "carol", &["bob"], "carol to bob");
-    store(&home, "alice", &["dave"], "alice to dave");
+    store_message(&home, "alice", &["bob"], "alice to bob");
+    store_message(&home, "carol", &["bob"], "carol to bob");
+    store_message(&home, "alice", &["dave"], "alice to dave");
 
     assert_eq!(
         listed_subjects(&home, &["--to", "bob", "--from", "alice"]),
@@ -214,7 +214,7 @@ fn to_and_from_together_return_only_messages_satisfying_both() {
 #[test]
 fn a_filter_matching_nothing_prints_nothing_and_succeeds() {
     let home = TempFolder::new("list-no-match");
-    store(&home, "alice", &["bob"], "hello");
+    store_message(&home, "alice", &["bob"], "hello");
 
     assert!(listed_subjects(&home, &["--to", "nobody"]).is_empty());
 }
@@ -251,7 +251,7 @@ fn the_short_help_of_list_and_of_snailbox_says_oldest_first() {
 #[test]
 fn list_refuses_a_blank_to_or_from_as_create_does() {
     let home = TempFolder::new("list-blank-name");
-    store(&home, "alice", &["bob"], "lunch?");
+    store_message(&home, "alice", &["bob"], "lunch?");
 
     for (list_args, create_args) in [
         (
@@ -291,7 +291,7 @@ fn list_refuses_a_blank_to_or_from_as_create_does() {
 #[test]
 fn list_with_a_non_blank_name_that_matches_nothing_succeeds_with_an_empty_listing() {
     let home = TempFolder::new("list-unmatched-name");
-    store(&home, "alice", &["bob"], "lunch?");
+    store_message(&home, "alice", &["bob"], "lunch?");
 
     for args in [
         &["list", "--to", "nobody"][..],

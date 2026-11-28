@@ -33,6 +33,34 @@ fn help_exits_zero_and_lists_the_three_commands() {
 }
 
 #[test]
+fn help_describes_the_program_as_a_local_store_of_messages() {
+    let home = TempFolder::new("about-help");
+    let output = snailbox(home.path(), &["--help"]);
+
+    assert!(output.status.success(), "exit status was {}", output.status);
+    assert_eq!(
+        stdout(&output).lines().next(),
+        Some("A local Store of Messages between Senders and Receivers")
+    );
+}
+
+#[test]
+fn list_help_says_messages_come_in_the_order_this_store_stored_them() {
+    let home = TempFolder::new("list-order-help");
+    let output = snailbox(home.path(), &["list", "--help"]);
+
+    assert!(output.status.success(), "exit status was {}", output.status);
+    let help = stdout(&output)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        help.contains("the order this Store stored"),
+        "list --help was {help}"
+    );
+}
+
+#[test]
 fn create_help_describes_every_option() {
     let home = TempFolder::new("create-help");
     let output = snailbox(home.path(), &["create", "--help"]);

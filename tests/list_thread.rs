@@ -6,7 +6,7 @@
 mod common;
 
 use common::{
-    create, failed_list, listed_subjects, snailbox, stdout, store,
+    create, failed_list, listed_subjects, snailbox, stdout, store_message,
     two_ids_sharing_a_first_character, TempFolder,
 };
 
@@ -26,7 +26,7 @@ fn tree(name: &str) -> (TempFolder, Vec<String>) {
     for (index, parent) in parents.iter().enumerate() {
         let subject = format!("m{}", index + 1);
         let id = match parent {
-            None => store(&home, "alice", &["bob"], &subject),
+            None => store_message(&home, "alice", &["bob"], &subject),
             Some(parent) => create(
                 home.path(),
                 &[

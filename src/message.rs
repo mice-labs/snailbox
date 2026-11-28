@@ -60,9 +60,9 @@ impl FromSql for MessageId {
 
 /// The start of a Message's id as a person types it: a whole id or any non-empty prefix of
 /// one. It holds the text as typed, which errors echo and queries bind unchanged: the Store's
-/// id column is COLLATE NOCASE, so it matches whatever the letter case typed. A Store whose
-/// messages table predates COLLATE NOCASE keeps a BINARY id column and matches only the case
-/// stored (lower case).
+/// id column is COLLATE NOCASE, so it matches whatever the letter case typed. A database
+/// file whose messages table was written without COLLATE NOCASE keeps a BINARY id column and
+/// matches only the case stored (lower case).
 #[derive(Clone, Debug)]
 pub struct IdPrefix(String);
 

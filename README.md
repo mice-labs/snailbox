@@ -38,10 +38,11 @@ which caps `--subject` and `--body` but not `--body-file` or `--stdin`.
 the Message as a Reply to the named Message, and `show` prints a Reply's parent id (a
 `Parent:` line in text, `parent` in JSON, null when the Message is not a Reply). `show` and
 `--reply-to` take a Message's id or any non-empty prefix of it, in either letter case, that
-matches exactly one Message. (The case-insensitive match holds for a Store created with the
-current schema; one whose messages table predates it matches a prefix only in lower case,
-the case ids are stored in, because nothing migrates the old table, so only a fresh
-`SNAILBOX_HOME` gets the case-insensitive match.) They exit non-zero with an error on
+matches exactly one Message. (The case-insensitive match holds for a database file created with the
+current schema; one written with an older schema, whose messages table lacks it, matches a
+prefix only in lower case, the case ids are stored in, because nothing migrates the old
+table, so only a fresh `SNAILBOX_HOME` gets the case-insensitive match. An `inbox.sqlite3`
+left in the folder by a build that still said Inbox is not read.) They exit non-zero with an error on
 standard error when the prefix is empty or no Message matches, or when several do, in which
 case the error lists the matches and ends by saying to give more characters of the id. An
 error echoes the prefix in the letter case it was typed. They never take a date or time: ids

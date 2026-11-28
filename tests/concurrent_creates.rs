@@ -7,7 +7,7 @@ mod common;
 use std::collections::HashSet;
 use std::process::Child;
 
-use common::{command_in, id_from, snailbox, stderr, stdout, store, TempFolder};
+use common::{command_in, id_from, snailbox, stderr, stdout, store_message, TempFolder};
 use serde_json::Value;
 
 const WRITERS: usize = 32;
@@ -69,7 +69,7 @@ fn page(home: &TempFolder, after: &str, limit: usize) -> (Vec<(String, String)>,
 fn concurrent_creates_all_succeed_and_each_message_is_kept() {
     let home = TempFolder::new("concurrent-kept");
     // The Store exists before the writers race, so they contend on writes, not on setup.
-    store(&home, "alice", &["bob"], "start");
+    store_message(&home, "alice", &["bob"], "start");
 
     let (_, ids) = create_at_once(&home);
 
@@ -96,7 +96,7 @@ fn concurrent_creates_on_a_new_store_all_succeed() {
 #[test]
 fn paging_after_concurrent_creates_returns_each_message_exactly_once() {
     let home = TempFolder::new("concurrent-paging");
-    let start = store(&home, "alice", &["bob"], "start");
+    let start = store_message(&home, "alice", &["bob"], "start");
     let (subjects, ids) = create_at_once(&home);
 
     let mut seen_ids = Vec::new();
