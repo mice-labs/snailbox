@@ -1,5 +1,5 @@
 //! `create` rejects a Message missing its Sender, Receiver or subject, or giving one of them a
-//! blank name, takes its body from `--body`, `--body-file` or `--stdin` (at most one), and
+//! blank name or subject, takes its body from `--body`, `--body-file` or `--stdin` (at most one), and
 //! refuses an empty or blank body file or standard input. Each test runs the built binary
 //! against its own temporary `SNAILBOX_HOME`.
 
@@ -135,6 +135,35 @@ fn create_rejects_a_blank_sender_or_receiver() {
         assert_rejected(&output, "the name is blank; give a name");
         assert_rejected(&output, "--help");
     }
+}
+
+#[test]
+fn create_rejects_a_blank_subject_and_stores_nothing() {
+    let home = TempFolder::new("blank-subject");
+
+    for blank in ["", "  ", " \t"] {
+        let args = ["--from", "alice", "--to", "bob", "--subject", blank];
+
+        let output = run_create(home.path(), &args, b"");
+
+        assert_rejected(&output, "the subject is blank; give a subject");
+        assert_rejected(&output, "--subject");
+        assert_rejected(&output, "--help");
+    }
+    let listing = common::snailbox(home.path(), &["list"]);
+    assert!(stdout(&listing).is_empty(), "stored: {}", stdout(&listing));
+}
+
+#[test]
+fn create_stores_a_non_blank_subject_as_given() {
+    let home = TempFolder::new("subject-as-given");
+
+    let id = create(
+        home.path(),
+        &["--from", "alice", "--to", "bob", "--subject", "  hi there "],
+    );
+
+    assert_eq!(shown_json(home.path(), &id)["subject"], "  hi there ");
 }
 
 #[test]

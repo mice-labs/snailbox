@@ -16,7 +16,7 @@ snailbox list --thread "${id:0:8}"             # the Thread a Message belongs to
 
 `create` needs `--from` (there is no default Sender and no fallback to the operating-system
 user or Git identity), at least one `--to` and `--subject`; without them, or with a blank
-`--from` or `--to`, it exits non-zero with an error on standard error; `list` refuses a blank
+`--from`, `--to` or `--subject`, it exits non-zero with an error on standard error; `list` refuses a blank
 `--from` or `--to` the same way, while a name that matches nothing lists nothing and exits 0.
 The body comes from at most one of `--body <text>`, `--body-file <path>` or `--stdin` (its
 Body source), so long text needs no shell quoting:

@@ -11,7 +11,7 @@ use clap::{Args, Parser, Subcommand};
 
 use inbox::{BodySource, IdArgument, Inbox, Limit, ListFilter, NoMessageFor};
 use listing::{AFTER_FLAG, BEFORE_FLAG};
-use message::{IdPrefix, Name, NewMessage};
+use message::{IdPrefix, Name, NewMessage, Subject};
 
 #[derive(Parser)]
 #[command(
@@ -60,7 +60,7 @@ enum Command {
         to: Vec<Name>,
         /// The Message's subject
         #[arg(long)]
-        subject: String,
+        subject: Subject,
         #[command(flatten)]
         body_source: BodyArgs,
         /// Store the Message as a Reply to this Message, named by its Message id or a unique
