@@ -177,16 +177,32 @@ impl std::str::FromStr for Subject {
     type Err = String;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
-        if is_blank(text) {
+        text.to_owned().try_into()
+    }
+}
+
+impl TryFrom<String> for Subject {
+    type Error = String;
+
+    fn try_from(text: String) -> Result<Self, Self::Error> {
+        if is_blank(&text) {
             return Err("the subject is blank; give a subject".to_owned());
         }
-        Ok(Self(text.to_owned()))
+        Ok(Self(text))
     }
 }
 
 impl ToSql for Subject {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
         self.0.to_sql()
+    }
+}
+
+impl FromSql for Subject {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        String::column_result(value)?
+            .try_into()
+            .map_err(|error: String| FromSqlError::Other(error.into()))
     }
 }
 

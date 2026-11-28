@@ -2,6 +2,7 @@
 
 use std::num::NonZeroUsize;
 use std::path::Path;
+use std::str::Utf8Error;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -279,9 +280,12 @@ fn message_from_row(row: &Row<'_>) -> Result<Message> {
     let receivers: Vec<Name> = serde_json::from_str(&receivers_json)
         .with_context(|| format!("the Inbox holds malformed Receivers {receivers_json}"))?;
     let id: MessageId = row.get("id")?;
-    let stored_subject: String = row.get("subject")?;
-    let subject = stored_subject.parse().map_err(|_| {
-        anyhow!("the Inbox holds a blank subject for the Message {id}; it is corrupt")
+    // A conversion failure on text that is valid UTF-8 can only be Subject's not-blank rule.
+    let subject = row.get("subject").map_err(|error| match error {
+        rusqlite::Error::FromSqlConversionFailure(_, _, ref cause) if !cause.is::<Utf8Error>() => {
+            anyhow!("the Inbox holds a blank subject for the Message {id}; it is corrupt")
+        }
+        error => error.into(),
     })?;
     Ok(Message {
         id,
