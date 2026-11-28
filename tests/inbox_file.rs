@@ -12,7 +12,7 @@ mod common;
 
 use std::path::{Path, PathBuf};
 
-use common::{create, snailbox, stderr, stdout, TempFolder};
+use common::{create, snailbox, stderr, stdout, TempFolder, DATABASE_FILE_NAME};
 use rusqlite::Connection;
 
 // The tables of today's schema with none of the indexes on messages.parent, messages.sender
@@ -39,7 +39,7 @@ const ROOT_ID: &str = "11111111-1111-4111-8111-111111111111";
 const REPLY_ID: &str = "22222222-2222-4222-8222-222222222222";
 
 fn database(home: &Path) -> PathBuf {
-    home.join("inbox.sqlite3")
+    home.join(DATABASE_FILE_NAME)
 }
 
 /// Writes an Inbox with the index-less schema holding a Message and a Reply to it, each with

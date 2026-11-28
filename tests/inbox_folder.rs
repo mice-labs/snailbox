@@ -9,7 +9,9 @@ mod common;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
-use common::{bare_command, create, create_with, snailbox, stderr, stdout, TempFolder};
+use common::{
+    bare_command, create, create_with, snailbox, stderr, stdout, TempFolder, DATABASE_FILE_NAME,
+};
 
 const NEW_MESSAGE: [&str; 6] = ["--from", "alice", "--to", "bob", "--subject", "hello"];
 
@@ -124,7 +126,7 @@ fn create_in_an_existing_755_folder_makes_the_database_for_its_owner_only() {
 
     create(&folder, &NEW_MESSAGE);
 
-    let database = mode_of(&folder.join("inbox.sqlite3"));
+    let database = mode_of(&folder.join(DATABASE_FILE_NAME));
     assert_eq!(database, 0o600, "database mode was {database:o}");
     let folder_mode = mode_of(&folder);
     assert_eq!(folder_mode, 0o755, "folder mode was {folder_mode:o}");
