@@ -42,11 +42,11 @@ matches exactly one Message. (The case-insensitive match holds for a database fi
 with the current schema; one written with an older schema, whose messages table lacks it,
 matches a prefix only in lower case, the case ids are stored in, because nothing migrates
 the old table, so only a fresh `SNAILBOX_HOME` gets the case-insensitive match. An
-`inbox.sqlite3` left in the folder by an earlier build is not read.) They exit non-zero
-with an error on standard error when the prefix is empty or no Message matches, or when
-several do, in which case the error lists the matches and ends by saying to give more
-characters of the id. An
-error echoes the prefix in the letter case it was typed. They never take a date or time: ids
+`inbox.sqlite3` left in the folder by an earlier build is not read; rename it to
+`store.sqlite3` to keep its Messages.) They exit non-zero with an error on standard error
+when the prefix is empty or no Message matches, or when several do, in which case the error
+lists the matches and ends by saying to give more characters of the id. An error echoes the
+prefix in the letter case it was typed. They never take a date or time: ids
 are random UUIDs, so a date or time matches no Message, and the no-match error adds that the
 argument or flag takes a Message id, not a date or time, and to run `snailbox list` to find
 one. The exception is an all-digit value such as `20261126`, which is also a valid id

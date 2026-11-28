@@ -125,8 +125,7 @@ fn a_fresh_home_gets_a_store_sqlite3_database_for_its_owner_only() {
 
     create(&folder, &NEW_MESSAGE);
 
-    // The literal, not DATABASE_FILE_NAME: this test pins the file name the binary creates.
-    let database = mode_of(&folder.join("store.sqlite3"));
+    let database = mode_of(&folder.join(DATABASE_FILE_NAME));
     assert_eq!(database, 0o600, "database mode was {database:o}");
 }
 
