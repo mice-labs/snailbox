@@ -287,7 +287,9 @@ fn message_from_row(row: &Row<'_>) -> Result<Message> {
         receivers,
         subject: row.get("subject")?,
         body: row.get("body")?,
-        parent: row.get("parent").map_err(|error| malformed_id(row, error))?,
+        parent: row
+            .get("parent")
+            .map_err(|error| malformed_id(row, error))?,
         created_at: created_at_from_row(row)?,
     })
 }
