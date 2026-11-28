@@ -38,21 +38,23 @@ which caps `--subject` and `--body` but not `--body-file` or `--stdin`.
 the Message as a Reply to the named Message, and `show` prints a Reply's parent id (a
 `Parent:` line in text, `parent` in JSON, null when the Message is not a Reply). `show` and
 `--reply-to` take a Message's id or any non-empty prefix of it, in either letter case, that
-matches exactly one Message. (The case-insensitive match holds for an Inbox created with the
-current schema; one whose messages table predates it matches a prefix only in lower case,
-the case ids are stored in, because nothing migrates the old table, so only a fresh
-`SNAILBOX_HOME` gets the case-insensitive match.) They exit non-zero with an error on
-standard error when the prefix is empty or no Message matches, or when several do, in which
-case the error lists the matches and ends by saying to give more characters of the id. An
-error echoes the prefix in the letter case it was typed. They never take a date or time: ids
+matches exactly one Message. (The case-insensitive match holds for a database file created
+with the current schema; one written with an older schema, whose messages table lacks it,
+matches a prefix only in lower case, the case ids are stored in, because nothing migrates
+the old table, so only a fresh `SNAILBOX_HOME` gets the case-insensitive match. An
+`inbox.sqlite3` left in the folder by an earlier build is not read; rename it to
+`store.sqlite3` to keep its Messages.) They exit non-zero with an error on standard error
+when the prefix is empty or no Message matches, or when several do, in which case the error
+lists the matches and ends by saying to give more characters of the id. An error echoes the
+prefix in the letter case it was typed. They never take a date or time: ids
 are random UUIDs, so a date or time matches no Message, and the no-match error adds that the
 argument or flag takes a Message id, not a date or time, and to run `snailbox list` to find
 one. The exception is an all-digit value such as `20261126`, which is also a valid id
 prefix: it is read as one, and matches a Message only when that Message's id happens to
 start with it. There is no daemon: `create`, `show` and `list` each open the
-Inbox directly.
+Store directly.
 
-`list` always returns Messages in sequence-number order, oldest first: the order this Inbox
+`list` always returns Messages in sequence-number order, oldest first: the order this Store
 stored them, which creation times never decide (ADR 0001). There is no sort flag. Each Message's
 text line is tab-separated: the first eight characters of the id, the creation time in local
 time, the Sender, the Receivers joined by commas and the subject; a tab or line break inside
@@ -62,10 +64,10 @@ one of them prints as a space. A limit that left Messages out adds one last line
 does, with the full id: `id`, `created_at` (RFC 3339 UTC), `from`, `to` and `subject`. It has
 no `body` or `parent`; `show --json` has both. `--to <name>` keeps Messages with that name
 among their Receivers, `--from <name>` keeps Messages from that Sender, and both together
-keep only Messages satisfying both. An empty Inbox, or filters matching nothing, exit 0 and
+keep only Messages satisfying both. An empty Store, or filters matching nothing, exit 0 and
 print nothing in text form, or with `--json` an object whose `messages` is empty.
 
-`--after <id>` and `--before <id>` are cursors: they keep the Messages this Inbox stored after
+`--after <id>` and `--before <id>` are cursors: they keep the Messages this Store stored after
 or before the named one, and together bound a range. They take a Message id or a unique
 prefix, never a date or time, with the same errors as `show`: several-match, with its next step of giving more
 characters, and no-match with its hint that the flag takes a Message id, its next step and
@@ -94,15 +96,15 @@ out `left_out` is 0 and `next` is null, so the object has one shape either way. 
 limit combine with `--to` and `--from`, which narrow the matches before the limit applies, as do
 the thread filters.
 
-The Inbox is a SQLite database in the folder `SNAILBOX_HOME` names when it is set, else
+The Store is a SQLite database in the folder `SNAILBOX_HOME` names when it is set, else
 `$XDG_DATA_HOME/snailbox/` when that is set, else `~/.local/share/snailbox/`. An empty
 variable counts as unset. `create`, `show` and `list` each create a missing folder, readable
 and writable by its owner only; a folder that already exists keeps its permissions. The
-database file `inbox.sqlite3`, when snailbox creates it, is readable and writable by its owner
+database file `store.sqlite3`, when snailbox creates it, is readable and writable by its owner
 only whatever the folder's permissions, so other users cannot read the Messages even in a
 folder they can list; a database file that already exists keeps its permissions.
 
-Several processes can run `create` against one Inbox at once: SQLite lets one write at a
+Several processes can run `create` against one Store at once: SQLite lets one write at a
 time, and the others wait for it, up to 30 seconds each, before failing with "database is
 locked". Every Message they store gets its own place in sequence-number order, so paging with
 `--after` sees each one exactly once.

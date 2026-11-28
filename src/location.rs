@@ -1,4 +1,4 @@
-//! Where the Inbox lives on this machine, and making that folder and its database file on
+//! Where the Store lives on this machine, and making that folder and its database file on
 //! first use.
 
 use std::ffi::OsString;
@@ -7,10 +7,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-/// The Inbox folder: `SNAILBOX_HOME` when set, else `$XDG_DATA_HOME/snailbox` when that is
+/// The Store folder: `SNAILBOX_HOME` when set, else `$XDG_DATA_HOME/snailbox` when that is
 /// set, else `~/.local/share/snailbox`. An empty variable counts as unset, as the XDG Base
 /// Directory specification has it.
-pub fn inbox_folder() -> Result<PathBuf> {
+pub fn store_folder() -> Result<PathBuf> {
     if let Some(home) = non_empty_var("SNAILBOX_HOME") {
         return Ok(PathBuf::from(home));
     }
@@ -18,7 +18,7 @@ pub fn inbox_folder() -> Result<PathBuf> {
         return Ok(PathBuf::from(data_home).join("snailbox"));
     }
     let home = non_empty_var("HOME")
-        .context("cannot find the Inbox folder: SNAILBOX_HOME, XDG_DATA_HOME and HOME are unset")?;
+        .context("cannot find the Store folder: SNAILBOX_HOME, XDG_DATA_HOME and HOME are unset")?;
     Ok(PathBuf::from(home).join(".local/share/snailbox"))
 }
 

@@ -35,10 +35,10 @@ impl Drop for TempFolder {
     }
 }
 
-/// The name of the Inbox's database file, inside the Inbox folder.
-pub const DATABASE_FILE_NAME: &str = "inbox.sqlite3";
+/// The name of the Store's database file, inside the Store folder.
+pub const DATABASE_FILE_NAME: &str = "store.sqlite3";
 
-/// The binary with no Inbox location in its environment, so each test sets the one it means.
+/// The binary with no Store location in its environment, so each test sets the one it means.
 pub fn bare_command() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_snailbox"));
     command
@@ -77,7 +77,7 @@ pub fn create(home: &Path, args: &[&str]) -> String {
 }
 
 /// Stores a Message from `from` to `to` with `subject` and returns its id.
-pub fn store(home: &TempFolder, from: &str, to: &[&str], subject: &str) -> String {
+pub fn store_message(home: &TempFolder, from: &str, to: &[&str], subject: &str) -> String {
     let mut args = vec!["--from", from, "--subject", subject];
     for name in to {
         args.push("--to");
@@ -92,7 +92,7 @@ pub fn store(home: &TempFolder, from: &str, to: &[&str], subject: &str) -> Strin
 pub fn two_ids_sharing_a_first_character(home: &TempFolder) -> (String, String, String) {
     let mut seen: Vec<String> = Vec::new();
     loop {
-        let id = store(home, "alice", &["bob"], "m");
+        let id = store_message(home, "alice", &["bob"], "m");
         let first = id.chars().next().expect("an id is not empty");
         if let Some(earlier) = seen.iter().find(|other| other.starts_with(first)) {
             return (first.to_string(), earlier.clone(), id);

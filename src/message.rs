@@ -59,15 +59,15 @@ impl FromSql for MessageId {
 }
 
 /// The start of a Message's id as a person types it: a whole id or any non-empty prefix of
-/// one. It holds the text as typed, which errors echo and queries bind unchanged: the Inbox's
-/// id column is COLLATE NOCASE, so it matches whatever the letter case typed. An Inbox whose
-/// messages table predates COLLATE NOCASE keeps a BINARY id column and matches only the case
-/// stored (lower case).
+/// one. It holds the text as typed, which errors echo and queries bind unchanged: the Store's
+/// id column is COLLATE NOCASE, so it matches whatever the letter case typed. A database
+/// file whose messages table was written without COLLATE NOCASE keeps a BINARY id column and
+/// matches only the case stored (lower case).
 #[derive(Clone, Debug)]
 pub struct IdPrefix(String);
 
 impl IdPrefix {
-    /// The text as typed, to bind in a query against the Inbox's id column.
+    /// The text as typed, to bind in a query against the Store's id column.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -92,7 +92,7 @@ impl std::str::FromStr for IdPrefix {
 }
 
 /// A Sender's or Receiver's name, which must hold something other than whitespace. Reading
-/// one from the Inbox or from JSON applies the same rule. With `serde_json` it serializes as
+/// one from the Store or from JSON applies the same rule. With `serde_json` it serializes as
 /// its bare text, because serde_json writes a newtype struct as its field (another format may
 /// wrap it), and `#[serde(transparent)]` cannot be combined with `try_from`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -206,7 +206,7 @@ impl FromSql for Subject {
     }
 }
 
-/// What a creator supplies for a new Message; the Inbox adds the id and creation time.
+/// What a creator supplies for a new Message; the Store adds the id and creation time.
 pub struct NewMessage {
     pub sender: Name,
     pub receivers: Vec<Name>,
@@ -342,7 +342,7 @@ mod tests {
     }
 
     #[test]
-    fn a_blank_name_is_refused_when_read_from_the_inbox() {
+    fn a_blank_name_is_refused_when_read_from_the_store() {
         let connection = rusqlite::Connection::open_in_memory().expect("opens");
 
         let error = connection
@@ -356,7 +356,7 @@ mod tests {
     }
 
     #[test]
-    fn names_and_ids_round_trip_through_the_inbox_and_json() {
+    fn names_and_ids_round_trip_through_the_store_and_json() {
         let id = MessageId::random();
         let name: Name = "alice".parse().expect("the name is not blank");
         let connection = rusqlite::Connection::open_in_memory().expect("opens");

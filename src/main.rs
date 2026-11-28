@@ -1,7 +1,7 @@
-mod inbox;
 mod listing;
 mod location;
 mod message;
+mod store;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -9,14 +9,14 @@ use std::process::ExitCode;
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 
-use inbox::{Body, BodySource, IdArgument, Inbox, Limit, ListFilter, NoMessageFor};
 use listing::{AFTER_FLAG, BEFORE_FLAG};
 use message::{IdPrefix, Name, NewMessage, Subject};
+use store::{Body, BodySource, IdArgument, Limit, ListFilter, NoMessageFor, Store};
 
 #[derive(Parser)]
 #[command(
     version,
-    about = "A local Inbox of Messages between Senders and Receivers"
+    about = "A local Store of Messages between Senders and Receivers"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -70,7 +70,7 @@ enum Command {
     },
     /// List Messages in sequence-number order, oldest first
     ///
-    /// Messages always come in sequence-number order, oldest first: the order this Inbox stored
+    /// Messages always come in sequence-number order, oldest first: the order this Store stored
     /// them in, never decided by their creation times. There is no sort flag.
     List {
         /// Only Messages with this name among their Receivers
@@ -171,8 +171,8 @@ fn run(command: Command) -> Result<()> {
             let body = Option::<BodySource>::from(body_source)
                 .map(BodySource::read)
                 .transpose()?;
-            let mut inbox = Inbox::open(&location::inbox_folder()?)?;
-            let id = inbox
+            let mut store = Store::open(&location::store_folder()?)?;
+            let id = store
                 .create(&NewMessage {
                     sender: from,
                     receivers: to,
@@ -194,7 +194,7 @@ fn run(command: Command) -> Result<()> {
             limit,
             json,
         } => {
-            let inbox = Inbox::open(&location::inbox_folder()?)?;
+            let store = Store::open(&location::store_folder()?)?;
             let filter = ListFilter {
                 to,
                 from,
@@ -205,7 +205,7 @@ fn run(command: Command) -> Result<()> {
                 thread,
                 limit,
             };
-            let listing = inbox.list(&filter).map_err(hint_id_error)?;
+            let listing = store.list(&filter).map_err(hint_id_error)?;
             if json {
                 println!("{}", listing.to_json());
             } else {
@@ -213,8 +213,8 @@ fn run(command: Command) -> Result<()> {
             }
         }
         Command::Show { prefix, json } => {
-            let inbox = Inbox::open(&location::inbox_folder()?)?;
-            let message = inbox.show(&prefix).map_err(hint_id_error)?;
+            let store = Store::open(&location::store_folder()?)?;
+            let message = store.show(&prefix).map_err(hint_id_error)?;
             if json {
                 println!("{}", message.to_json());
             } else {

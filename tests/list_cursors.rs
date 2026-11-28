@@ -6,7 +6,7 @@
 mod common;
 
 use common::{
-    failed_list, listed_subjects, snailbox, stderr, stdout, store,
+    failed_list, listed_subjects, snailbox, stderr, stdout, store_message,
     two_ids_sharing_a_first_character, TempFolder,
 };
 use serde_json::Value;
@@ -22,7 +22,7 @@ fn json_of(output: &Output) -> Value {
 fn home_with(count: usize, name: &str) -> (TempFolder, Vec<String>) {
     let home = TempFolder::new(name);
     let ids = (1..=count)
-        .map(|n| store(&home, "alice", &["bob"], &format!("m{n}")))
+        .map(|n| store_message(&home, "alice", &["bob"], &format!("m{n}")))
         .collect();
     (home, ids)
 }
@@ -496,11 +496,11 @@ fn json_is_still_an_object_when_nothing_was_left_out() {
 #[test]
 fn cursors_and_limit_combine_with_to_and_from() {
     let home = TempFolder::new("combine");
-    let first = store(&home, "alice", &["bob"], "a1");
-    store(&home, "carol", &["bob"], "c1");
-    store(&home, "alice", &["dave"], "a-dave");
-    store(&home, "alice", &["bob"], "a2");
-    store(&home, "alice", &["bob"], "a3");
+    let first = store_message(&home, "alice", &["bob"], "a1");
+    store_message(&home, "carol", &["bob"], "c1");
+    store_message(&home, "alice", &["dave"], "a-dave");
+    store_message(&home, "alice", &["bob"], "a2");
+    store_message(&home, "alice", &["bob"], "a3");
 
     assert_eq!(
         listed_subjects(
@@ -514,12 +514,12 @@ fn cursors_and_limit_combine_with_to_and_from() {
 #[test]
 fn before_and_limit_combine_with_to_and_from() {
     let home = TempFolder::new("combine-before");
-    store(&home, "alice", &["bob"], "a1");
-    store(&home, "carol", &["bob"], "c1");
-    store(&home, "alice", &["bob"], "a2");
-    store(&home, "alice", &["dave"], "a-dave");
-    store(&home, "alice", &["bob"], "a3");
-    let last = store(&home, "alice", &["bob"], "a4");
+    store_message(&home, "alice", &["bob"], "a1");
+    store_message(&home, "carol", &["bob"], "c1");
+    store_message(&home, "alice", &["bob"], "a2");
+    store_message(&home, "alice", &["dave"], "a-dave");
+    store_message(&home, "alice", &["bob"], "a3");
+    let last = store_message(&home, "alice", &["bob"], "a4");
 
     assert_eq!(
         listed_subjects(
@@ -533,8 +533,8 @@ fn before_and_limit_combine_with_to_and_from() {
 #[test]
 fn a_cursor_message_need_not_match_the_filters() {
     let home = TempFolder::new("cursor-outside-filter");
-    let carol = store(&home, "carol", &["bob"], "c1");
-    store(&home, "alice", &["bob"], "a1");
+    let carol = store_message(&home, "carol", &["bob"], "c1");
+    store_message(&home, "alice", &["bob"], "a1");
 
     assert_eq!(
         listed_subjects(&home, &["--after", &carol, "--from", "alice"]),

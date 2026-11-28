@@ -182,7 +182,7 @@ fn a_receiver_name_holding_a_comma_comes_back_whole_and_in_order() {
 /// the `to` array `show --json` prints for it, failing the test unless `create` succeeds and
 /// `show` succeeds with nothing on standard error.
 fn shown_receivers(home: &TempFolder, receivers: &[&str]) -> Value {
-    let id = common::store(home, "alice", receivers, "hello");
+    let id = common::store_message(home, "alice", receivers, "hello");
 
     let output = snailbox(home.path(), &["show", &id, "--json"]);
 
@@ -228,7 +228,7 @@ fn create_that_cannot_write_says_it_cannot_store_the_message() {
     create(home.path(), &args);
     let set_mode = |mode| {
         std::fs::set_permissions(home.path(), std::fs::Permissions::from_mode(mode))
-            .expect("the test owns the Inbox folder");
+            .expect("the test owns the Store folder");
     };
     // A folder the owner cannot write leaves SQLite no room for its journal, so the insert fails.
     set_mode(0o500);
@@ -238,7 +238,7 @@ fn create_that_cannot_write_says_it_cannot_store_the_message() {
     set_mode(0o700);
     assert!(
         !output.status.success(),
-        "create into a read-only Inbox succeeded"
+        "create into a read-only Store succeeded"
     );
     assert!(output.stdout.is_empty(), "stdout was {}", stdout(&output));
     assert!(

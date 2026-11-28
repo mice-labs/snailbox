@@ -2,7 +2,7 @@
 name = "snailbox"
 version = "0.1.0"
 edition = "2021"
-description = "A local Inbox of Messages between Senders and Receivers"
+description = "A local Store of Messages between Senders and Receivers"
 publish = false
 
 [dependencies]
