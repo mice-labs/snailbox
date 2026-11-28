@@ -1,20 +1,20 @@
 # snailbox
 
-A local inbox through which agents and people send each other messages asynchronously.
+A local message store through which agents and people send each other messages asynchronously.
 Connectors are a separate tool built on top of it that brings messages in from outside
 services and sends replies back out.
 
 ## Language
 
-### Inbox
+### Store
 
-**Inbox**:
-The single store of Messages belonging to one user on one machine, shared by every agent and
+**Store**:
+The one place Messages are kept for one user on one machine, shared by every agent and
 person sending or receiving there.
-_Avoid_: mailbox, queue, database
+_Avoid_: inbox (for the whole Store), mailbox, queue, database
 
 **Message**:
-A unit of content in the Inbox, with a subject and an optional body, addressed from one
+A unit of content in the Store, with a subject and an optional body, addressed from one
 Sender to one or more Receivers.
 _Avoid_: event, item, mail, notification
 
@@ -24,11 +24,29 @@ registered nor verified.
 _Avoid_: author, user, account
 
 **Receiver**:
-A name a Message is addressed to. Any name can be a Receiver without being registered first.
+A name a Message is addressed to. Any name can be a Receiver without being registered first,
+and a Message names each of its Receivers once.
 _Avoid_: recipient, subscriber, consumer
 
+**Delivery**:
+A Message as it stands for one of its Receivers. A Message has one Delivery for each of its
+Receivers, made when the Message is created, and each holds that Receiver's Delivery state.
+_Avoid_: receipt, copy
+
+**Delivery state**:
+Where a Delivery stands for its Receiver: Unread, Read or Archived. Every Delivery starts
+Unread. Archived means the Receiver has handled the Message, and an Archived Delivery counts
+as read. It changes only when someone acting as that Receiver marks it, and it can move in
+any direction.
+_Avoid_: flag, status, read receipt
+
+**Inbox**:
+Of a Receiver: all of that Receiver's Deliveries in the Store. The Store itself is never
+called an Inbox.
+_Avoid_: mailbox, folder
+
 **Sequence number**:
-The integer this Inbox gives each Message when it stores it. It is per Inbox and never reused,
+The integer this Store gives each Message when it stores it. It is per Store and never reused,
 and it is never a date or time. `list` always returns Messages in sequence-number order,
 oldest first, and the order never depends on their creation times.
 _Avoid_: arrival order, creation order, chronological order, sort order
