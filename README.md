@@ -63,15 +63,17 @@ print nothing in text form, or with `--json` an object whose `messages` is empty
 
 `--after <id>` and `--before <id>` are cursors: they keep the Messages this Inbox stored after
 or before the named one, and together bound a range. They take a Message id or a unique
-prefix, never a date or time, with the same errors as `show`: several-match, and no-match
-with its hint that the flag takes a Message id, its next step and its all-digit exception.
+prefix, never a date or time, with the same errors as `show`: several-match, with its next step of giving more
+characters, and no-match with its hint that the flag takes a Message id, its next step and
+its all-digit exception.
 
 `--upthread <id>`, `--downthread <id>` and `--thread <id>` follow Replies from the named
 Message, which they always include: `--upthread` adds the chain of Messages it replies to, back
 to one that is not a Reply; `--downthread` adds every Reply beneath it at any depth; `--thread`
 adds both. Replies on other branches are left out of all three. They take a Message id or a
-unique prefix, with the same errors as `--after` (several-match, and no-match with its hint
-that the flag takes a Message id, its next step and its all-digit exception), keep
+unique prefix, with the same errors as `--after` (several-match, with its next step of giving more
+characters, and no-match with its hint that the flag takes a Message id, its next step and
+its all-digit exception), keep
 sequence-number order, and combine with every other filter; when given together they all
 apply. So `--downthread <id> --after <last-seen-id>` returns only the new Replies beneath a
 Message.
