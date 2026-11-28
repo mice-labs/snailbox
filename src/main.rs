@@ -28,7 +28,7 @@ struct Cli {
 #[derive(Args)]
 #[group(multiple = false)]
 struct BodyArgs {
-    /// The Message's body, given as text, which must not be empty; without a Body source the Message has none
+    /// The Message's body, given as text, which must not be empty (omit it for no body)
     #[arg(long)]
     body: Option<String>,
     /// Take the body from this file, which must not be empty

@@ -1,7 +1,7 @@
 //! `create` rejects a Message missing its Sender, Receiver or subject, or giving one of them a
 //! blank name or subject, takes its body from `--body`, `--body-file` or `--stdin` (at most
-//! one), and refuses an empty `--body` and an empty or blank body file or standard input. Each test runs the built
-//! binary against its own temporary `SNAILBOX_HOME`.
+//! one), and refuses an empty `--body` and an empty or blank body file or standard input. Each
+//! test runs the built binary against its own temporary `SNAILBOX_HOME`.
 
 mod common;
 
