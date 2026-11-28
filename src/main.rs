@@ -9,7 +9,7 @@ use std::process::ExitCode;
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 
-use inbox::{BodySource, IdArgument, Inbox, Limit, ListFilter, NoMessageFor};
+use inbox::{Body, BodySource, IdArgument, Inbox, Limit, ListFilter, NoMessageFor};
 use listing::{AFTER_FLAG, BEFORE_FLAG};
 use message::{IdPrefix, Name, NewMessage, Subject};
 
@@ -28,9 +28,9 @@ struct Cli {
 #[derive(Args)]
 #[group(multiple = false)]
 struct BodyArgs {
-    /// The Message's body, given as text; without a Body source the Message has none
+    /// The Message's body as text, which must not be empty (omit it for no body)
     #[arg(long)]
-    body: Option<String>,
+    body: Option<Body>,
     /// Take the body from this file, which must not be empty
     #[arg(long)]
     body_file: Option<PathBuf>,
@@ -243,12 +243,15 @@ mod tests {
     #[test]
     fn the_body_flag_names_a_text_source() {
         let text = BodyArgs {
-            body: Some("hi".into()),
+            body: Some("hi".parse().expect("the body is not empty")),
             body_file: None,
             stdin: false,
         };
 
-        assert!(matches!(Option::<BodySource>::from(text), Some(BodySource::Text(t)) if t == "hi"));
+        let source = Option::<BodySource>::from(text).expect("the --body flag names a source");
+
+        assert!(matches!(source, BodySource::Text(_)));
+        assert_eq!(source.read().expect("a text source reads"), "hi");
     }
 
     #[test]

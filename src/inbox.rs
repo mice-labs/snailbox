@@ -13,7 +13,7 @@ use crate::location;
 use crate::message::{IdPrefix, Message, MessageId, Name, NewMessage};
 
 mod body;
-pub use body::BodySource;
+pub use body::{Body, BodySource};
 
 const DATABASE_FILE: &str = "inbox.sqlite3";
 

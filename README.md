@@ -26,12 +26,13 @@ Body source), so long text needs no shell quoting:
 git log -5 | snailbox create --from alice --to bob --subject 'recent work' --stdin
 ```
 
-Giving two body sources is an error, and so is a `--body-file` or `--stdin` input that is
-empty or only whitespace, so an upstream command that failed before printing anything cannot
-store a blank Message (one that failed after printing some text still gives a body). With no
-Body source the Message has no body. Subject and body have no length cap of snailbox's own;
-the operating system limits the total size of the command-line arguments, which caps
-`--subject` and `--body` but not `--body-file` or `--stdin`.
+Giving two body sources is an error, and so is an empty `--body ''` (leave the body out
+for none), which clap refuses while parsing the arguments, and a `--body-file` or `--stdin`
+input that is empty or only whitespace, so an upstream command that failed before printing
+anything cannot store a blank Message (one that failed after printing some text still gives
+a body). With no Body source the Message has no body. Subject and body have no length cap of
+snailbox's own; the operating system limits the total size of the command-line arguments,
+which caps `--subject` and `--body` but not `--body-file` or `--stdin`.
 
 `create` prints only the new Message's full id, a random UUID version 4. `--reply-to` stores
 the Message as a Reply to the named Message, and `show` prints a Reply's parent id (a
