@@ -107,6 +107,11 @@ impl fmt::Display for Name {
     }
 }
 
+/// Whether `text` is empty or only whitespace, the test a Name and a Subject both refuse on.
+fn is_blank(text: &str) -> bool {
+    text.trim().is_empty()
+}
+
 impl std::str::FromStr for Name {
     type Err = String;
 
@@ -119,7 +124,7 @@ impl TryFrom<String> for Name {
     type Error = String;
 
     fn try_from(text: String) -> Result<Self, Self::Error> {
-        if text.trim().is_empty() {
+        if is_blank(&text) {
             return Err("the name is blank; give a name".to_owned());
         }
         Ok(Self(text))
@@ -150,7 +155,7 @@ impl std::str::FromStr for Subject {
     type Err = String;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
-        if text.trim().is_empty() {
+        if is_blank(text) {
             return Err("the subject is blank; give a subject".to_owned());
         }
         Ok(Self(text.to_owned()))
