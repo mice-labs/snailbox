@@ -4,7 +4,7 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use chrono::{DateTime, SecondsFormat, Utc};
 use rusqlite::{params, Connection, Row, TransactionBehavior};
 
@@ -278,11 +278,16 @@ fn message_from_row(row: &Row<'_>) -> Result<Message> {
     let receivers_json: String = row.get("receivers")?;
     let receivers: Vec<Name> = serde_json::from_str(&receivers_json)
         .with_context(|| format!("the Inbox holds malformed Receivers {receivers_json}"))?;
+    let id: MessageId = row.get("id")?;
+    let stored_subject: String = row.get("subject")?;
+    let subject = stored_subject.parse().map_err(|_| {
+        anyhow!("the Inbox holds a blank subject for the Message {id}; it is corrupt")
+    })?;
     Ok(Message {
-        id: row.get("id")?,
+        id,
         sender: row.get("sender")?,
         receivers,
-        subject: row.get("subject")?,
+        subject,
         body: row.get("body")?,
         parent: row.get("parent")?,
         created_at: created_at_from_row(row)?,
@@ -586,6 +591,51 @@ mod tests {
             )
             .expect("the Message is stored");
         (folder, inbox)
+    }
+
+    #[test]
+    fn show_and_list_refuse_a_stored_blank_subject_naming_the_message() {
+        let folder = TempFolder::new("blank-stored-subject");
+        let inbox = Inbox::open(folder.path()).expect("the Inbox opens");
+        inbox
+            .connection
+            .execute(
+                "INSERT INTO messages (id, sender, subject, body, created_at, parent)
+                 VALUES (?1, 'alice', '  ', NULL, '2026-11-27T00:00:00Z', NULL)",
+                [STORED_ID],
+            )
+            .expect("the Message is stored");
+        inbox
+            .connection
+            .execute(
+                "INSERT INTO receivers (seq, position, name)
+                 SELECT seq, 0, 'bob' FROM messages WHERE id = ?1",
+                [STORED_ID],
+            )
+            .expect("the Receiver is stored");
+        let expected =
+            format!("the Inbox holds a blank subject for the Message {STORED_ID}; it is corrupt");
+
+        let shown = inbox
+            .show(&STORED_ID[..8].parse().expect("a prefix"))
+            .err()
+            .expect("show refuses");
+        let listed = inbox
+            .list(&ListFilter {
+                to: None,
+                from: None,
+                after: None,
+                before: None,
+                upthread: None,
+                downthread: None,
+                thread: None,
+                limit: Limit::default(),
+            })
+            .err()
+            .expect("list refuses");
+
+        assert_eq!(shown.to_string(), expected);
+        assert_eq!(listed.to_string(), expected);
     }
 
     #[test]

@@ -149,11 +149,29 @@ impl FromSql for Name {
     }
 }
 
-/// The subject of a Message being created, which must hold something other than whitespace.
-/// Reading a stored Message does not apply the rule, so an Inbox that holds a blank subject
-/// from before it lists as before.
+/// The subject of a Message, which must hold something other than whitespace. Reading a stored
+/// Message applies the same rule: an Inbox that holds a blank subject is corrupt, and `show`
+/// and `list` fail on it.
 #[derive(Clone, Debug)]
 pub struct Subject(String);
+
+impl Subject {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for Subject {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl Serialize for Subject {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.0)
+    }
+}
 
 impl std::str::FromStr for Subject {
     type Err = String;
@@ -186,7 +204,7 @@ pub struct Message {
     pub id: MessageId,
     pub sender: Name,
     pub receivers: Vec<Name>,
-    pub subject: String,
+    pub subject: Subject,
     pub body: Option<String>,
     pub parent: Option<MessageId>,
     pub created_at: DateTime<Utc>,
@@ -243,7 +261,7 @@ impl Message {
             self.local_time(),
             one_line(self.sender.as_str()),
             receivers.join(","),
-            one_line(&self.subject)
+            one_line(self.subject.as_str())
         )
     }
 
