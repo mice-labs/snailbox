@@ -1,18 +1,18 @@
 # Connector design notes
 
-Status: parked on 2026-11-25. The inbox is being designed and built first; this file holds
+Status: parked on 2026-11-25. The Store is being designed and built first; this file holds
 where the connector design stood when it was set aside. Terms are defined in
 [`GLOSSARY.md`](../GLOSSARY.md). Nothing here is implemented.
 
 ## Settled
 
 - **Connectors are a separate tool from snailbox** (see
-  [ADR 0002](adr/0002-snailbox-holds-only-inbox-logic.md)). They deliver messages into the
-  inbox the same way an agent or a person does, and the inbox knows nothing about outside
+  [ADR 0002](adr/0002-snailbox-holds-only-store-logic.md)). They deliver messages into the
+  Store the same way an agent or a person does, and the Store knows nothing about outside
   services. The tool's name and command names are undecided; "refresh" and "add" below name
   the operations, not commands.
 - **The connectors program is long-running.** Websockets and webhooks need a process that
-  stays up; the inbox itself does not.
+  stays up; the Store itself does not.
 - **A Connector type is a subprocess speaking a versioned protocol over stdio**, not a native
   library and not WASM. Service SDKs exist mainly in Python and JavaScript, a crashing
   Connector type must not take the host down, and each one should receive only its own
