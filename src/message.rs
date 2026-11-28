@@ -69,7 +69,7 @@ pub struct IdPrefix {
 
 impl IdPrefix {
     /// The lowercased text to match against stored ids.
-    pub fn as_str(&self) -> &str {
+    pub fn lowercased(&self) -> &str {
         &self.lowercase
     }
 }

@@ -154,7 +154,7 @@ impl Inbox {
     fn resolve(&self, prefix: &IdPrefix) -> Result<Message> {
         let mut statement = self.connection.prepare(RESOLVE_SQL)?;
         let matches = statement
-            .query_and_then([prefix.as_str()], message_from_row)?
+            .query_and_then([prefix.lowercased()], message_from_row)?
             .collect::<Result<Vec<Message>>>()?;
         one_of(prefix, matches, |message| message.id.to_string())
     }
@@ -164,7 +164,7 @@ impl Inbox {
     fn resolve_id(&self, prefix: &IdPrefix) -> Result<MessageId> {
         let mut statement = self.connection.prepare(RESOLVE_ID_SQL)?;
         let ids = statement
-            .query_map([prefix.as_str()], |row| row.get("id"))?
+            .query_map([prefix.lowercased()], |row| row.get("id"))?
             .collect::<rusqlite::Result<Vec<MessageId>>>()?;
         one_of(prefix, ids, MessageId::to_string)
     }

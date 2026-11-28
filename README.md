@@ -37,10 +37,11 @@ which caps `--subject` and `--body` but not `--body-file` or `--stdin`.
 `create` prints only the new Message's full id, a random UUID version 4. `--reply-to` stores
 the Message as a Reply to the named Message, and `show` prints a Reply's parent id (a
 `Parent:` line in text, `parent` in JSON, null when the Message is not a Reply). `show` and
-`--reply-to` take a Message's id or any non-empty prefix of it, in either letter case (an error
-echoes the prefix as typed), that matches exactly one Message; they exit non-zero with an error on standard error when the
+`--reply-to` take a Message's id or any non-empty prefix of it, in either letter case, that
+matches exactly one Message. They exit non-zero with an error on standard error when the
 prefix is empty or no Message matches, or when several do, in which case the error lists the
-matches and ends by saying to give more characters of the id. They never
+matches and ends by saying to give more characters of the id. An error echoes the prefix in
+the letter case it was typed. They never
 take a date or time: ids are random UUIDs, so a date or time matches no Message, and the
 no-match error adds that the argument or flag takes a Message id, not a date or time, and to
 run `snailbox list` to find one. The exception is an all-digit value such as `20261126`, which

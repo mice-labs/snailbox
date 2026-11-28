@@ -5,7 +5,9 @@
 
 mod common;
 
-use common::{create, snailbox, stderr, stdout, two_ids_sharing_a_first_character, TempFolder};
+use common::{
+    create, snailbox, stderr, stdout, store, two_ids_sharing_a_first_character, TempFolder,
+};
 use serde_json::Value;
 use std::process::Output;
 
@@ -201,6 +203,32 @@ fn a_prefix_matching_several_messages_fails_and_lists_them() {
         assert!(message.contains(&one), "{one} not listed in {message}");
         assert!(message.contains(&other), "{other} not listed in {message}");
     }
+}
+
+#[test]
+fn a_prefix_matching_several_messages_is_reported_in_the_letter_case_it_was_typed() {
+    let home = TempFolder::new("ambiguous-prefix-case");
+    // A letter digit, so that its upper-case form differs from the stored lower-case one.
+    let mut seen: Vec<String> = Vec::new();
+    let typed = loop {
+        let id = store(&home, "alice", &["bob"], "m");
+        let first = id.chars().next().expect("an id is not empty");
+        if first.is_ascii_alphabetic() && seen.iter().any(|other| other.starts_with(first)) {
+            break first.to_ascii_uppercase().to_string();
+        }
+        seen.push(id);
+    };
+
+    let output = snailbox(home.path(), &["show", &typed]);
+
+    assert!(!output.status.success(), "show succeeded");
+    assert!(
+        stderr(&output).starts_with(&format!(
+            "snailbox: the id prefix {typed} matches several Messages:\n"
+        )),
+        "stderr was {}",
+        stderr(&output)
+    );
 }
 
 #[test]
