@@ -150,8 +150,8 @@ impl FromSql for Name {
 }
 
 /// The subject of a Message, which must hold something other than whitespace. Reading a stored
-/// Message applies the same rule: an Inbox that holds a blank subject is corrupt, and `show`
-/// and `list` fail on it.
+/// Message applies the same rule: an Inbox that holds a blank subject is corrupt, and a `show` or `list`
+/// that reads that Message fails.
 #[derive(Clone, Debug)]
 pub struct Subject(String);
 

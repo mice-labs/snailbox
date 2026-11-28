@@ -480,8 +480,10 @@ mod test_folder {
     }
 }
 
-// These tests pin the rules the Inbox module decides for Limit: its default, and the refusal of
-// zero and of a non-number. They go through the module's public types, never the command line.
+// These tests pin the rules the Inbox module decides: Limit's default and its refusal of zero and
+// of a non-number, and the refusal of a stored blank subject on show and list. They go through the
+// module's public types, never the command line; the blank subject is written at the database
+// because the CLI never stores one.
 #[cfg(test)]
 mod rule_tests {
     use super::test_folder::TempFolder;
@@ -528,6 +530,46 @@ mod rule_tests {
 
         assert_eq!(listing.messages.len(), 50);
         assert_eq!(listing.left_out.expect("two were left out").count, 2);
+    }
+
+    #[test]
+    fn show_and_list_refuse_a_stored_blank_subject_naming_the_message() {
+        let stored_id = "abcdef01-3333-4333-8333-333333333333";
+        let expected =
+            format!("the Inbox holds a blank subject for the Message {stored_id}; it is corrupt");
+
+        for blank in ["", "  ", "\t"] {
+            let folder = TempFolder::new("blank-stored-subject");
+            let inbox = Inbox::open(folder.path()).expect("the Inbox opens");
+            inbox
+                .connection
+                .execute(
+                    "INSERT INTO messages (id, sender, subject, body, created_at, parent)
+                     VALUES (?1, 'alice', ?2, NULL, '2026-11-27T00:00:00Z', NULL)",
+                    [stored_id, blank],
+                )
+                .expect("the Message is stored");
+            inbox
+                .connection
+                .execute(
+                    "INSERT INTO receivers (seq, position, name)
+                     SELECT seq, 0, 'bob' FROM messages WHERE id = ?1",
+                    [stored_id],
+                )
+                .expect("the Receiver is stored");
+
+            let shown = inbox
+                .show(&stored_id[..8].parse().expect("a prefix"))
+                .err()
+                .expect("show refuses");
+            let listed = inbox
+                .list(&unfiltered(Limit::default()))
+                .err()
+                .expect("list refuses");
+
+            assert_eq!(shown.to_string(), expected, "show of {blank:?}");
+            assert_eq!(listed.to_string(), expected, "list of {blank:?}");
+        }
     }
 
     #[test]
@@ -591,51 +633,6 @@ mod tests {
             )
             .expect("the Message is stored");
         (folder, inbox)
-    }
-
-    #[test]
-    fn show_and_list_refuse_a_stored_blank_subject_naming_the_message() {
-        let folder = TempFolder::new("blank-stored-subject");
-        let inbox = Inbox::open(folder.path()).expect("the Inbox opens");
-        inbox
-            .connection
-            .execute(
-                "INSERT INTO messages (id, sender, subject, body, created_at, parent)
-                 VALUES (?1, 'alice', '  ', NULL, '2026-11-27T00:00:00Z', NULL)",
-                [STORED_ID],
-            )
-            .expect("the Message is stored");
-        inbox
-            .connection
-            .execute(
-                "INSERT INTO receivers (seq, position, name)
-                 SELECT seq, 0, 'bob' FROM messages WHERE id = ?1",
-                [STORED_ID],
-            )
-            .expect("the Receiver is stored");
-        let expected =
-            format!("the Inbox holds a blank subject for the Message {STORED_ID}; it is corrupt");
-
-        let shown = inbox
-            .show(&STORED_ID[..8].parse().expect("a prefix"))
-            .err()
-            .expect("show refuses");
-        let listed = inbox
-            .list(&ListFilter {
-                to: None,
-                from: None,
-                after: None,
-                before: None,
-                upthread: None,
-                downthread: None,
-                thread: None,
-                limit: Limit::default(),
-            })
-            .err()
-            .expect("list refuses");
-
-        assert_eq!(shown.to_string(), expected);
-        assert_eq!(listed.to_string(), expected);
     }
 
     #[test]
